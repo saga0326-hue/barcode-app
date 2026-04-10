@@ -22,7 +22,7 @@ def load_data(path):
             st.error(f"讀取 {os.path.basename(path)} 失敗: {e}")
     return None
 
-st.title("🛡️ 團隊共享：商品稽核與影像系統")
+st.title("🛡️ 團隊共享：商品條碼與影像系統")
 st.caption("同步支援：分類快選 / 關鍵字搜尋 / 自動條碼生成 / 商品圖對照")
 st.markdown("---")
 
