@@ -15,14 +15,13 @@ IMAGE_FOLDER = os.path.abspath(os.path.join(current_dir, "..", "images"))
 def load_data(path):
     if os.path.exists(path):
         try:
-            # 讀取並強制轉為字串，自動清除前後空格
             temp_df = pd.read_excel(path, dtype=str)
             temp_df.columns = temp_df.columns.str.strip()
             for col in temp_df.columns:
                 temp_df[col] = temp_df[col].str.strip()
             return temp_df
         except Exception as e:
-            st.error(f"讀取檔案失敗: {e}")
+            st.error(f"讀取失敗: {e}")
     return None
 
 st.title("🛡️ 團隊共享：商品稽核系統")
@@ -32,38 +31,30 @@ df = load_data(DATA_FILE_PATH)
 df_cat = load_data(CAT_FILE_PATH)
 
 if df is not None:
-    st.sidebar.header("🔍 篩選與分類")
+    # --- 側邊欄 ---
+    st.sidebar.header("🔍 篩選與設定")
     
-    # 3. 下拉選單邏輯
+    # 💡 增加手動縮放功能
+    st.sidebar.subheader("📱 行動裝置顯示調整")
+    img_size = st.sidebar.slider("條碼與圖片大小", min_value=50, max_value=250, value=120, step=10)
+
+    # 下拉選單
     selected_type = "全部"
-    if df_cat is not None:
-        if '類型' in df_cat.columns:
-            unique_types = df_cat['類型'].dropna().unique().tolist()
-            cat_list = ["全部"] + sorted(unique_types)
-            selected_type = st.sidebar.selectbox("📂 常用類型快選", cat_list)
-        else:
-            st.sidebar.error("❌ 分類檔中找不到『類型』欄位")
+    if df_cat is not None and '類型' in df_cat.columns:
+        unique_types = df_cat['類型'].dropna().unique().tolist()
+        cat_list = ["全部"] + sorted(unique_types)
+        selected_type = st.sidebar.selectbox("📂 常用類型快選", cat_list)
 
     search_name = st.sidebar.text_input("品名搜尋")
     search_loc = st.sidebar.text_input("口座搜尋")
-    search_code = st.sidebar.text_input("條碼或代號關鍵字搜尋")
+    search_code = st.sidebar.text_input("關鍵字搜尋")
 
-    # --- 4. 核心篩選邏輯 (改用條碼連結) ---
+    # --- 篩選邏輯 ---
     filtered_df = df.copy()
-    
-    if selected_type != "全部":
-        # 💡 改動：從分類檔抓取「條碼」清單
-        if '條碼' in df_cat.columns:
-            target_barcodes = df_cat[df_cat['類型'] == selected_type]['條碼'].dropna().unique().tolist()
-            # 用「條碼」去主檔搜尋
-            filtered_df = filtered_df[filtered_df['條碼'].isin(target_barcodes)]
-            
-            if len(filtered_df) == 0:
-                st.sidebar.warning(f"⚠️ 分類檔有 {len(target_barcodes)} 筆條碼，但主檔中無匹配資料。")
-        else:
-            st.sidebar.error("❌ 分類檔缺少『條碼』欄位，無法連結資料。")
+    if selected_type != "全部" and '條碼' in df_cat.columns:
+        target_barcodes = df_cat[df_cat['類型'] == selected_type]['條碼'].dropna().unique().tolist()
+        filtered_df = filtered_df[filtered_df['條碼'].isin(target_barcodes)]
 
-    # 關鍵字過濾
     if search_name:
         filtered_df = filtered_df[filtered_df['品名'].str.contains(search_name, na=False)]
     if search_loc:
@@ -73,47 +64,41 @@ if df is not None:
                 filtered_df['商品代號'].str.contains(search_code, na=False))
         filtered_df = filtered_df[mask]
 
-    # --- 5. 顯示結果 ---
+    # --- 顯示結果 ---
     if (selected_type != "全部") or search_name or search_loc or search_code:
-        count = len(filtered_df)
-        st.subheader(f"📊 檢索結果 (共 {count} 筆)")
-        
         display_df = filtered_df.head(50)
         for _, row in display_df.iterrows():
-            # 取得顯示用資料
             barcode_val = str(row.get('條碼', '')).replace('*', '').strip()
-            item_id = str(row.get('商品代號', 'unknown')) # 💡 圖片抓取仍用商品代號
+            item_id = str(row.get('商品代號', 'unknown'))
             
             with st.container():
-                col_img, col_info, col_bc = st.columns([1.5, 2.5, 1.5])
-                
-                with col_img:
-                    # 💡 以「商品代號」抓取圖片
-                    img_found = False
-                    if item_id != 'unknown' and item_id != 'nan':
-                        for ext in ['.jpg', '.png', '.jpeg']:
-                            path = os.path.join(IMAGE_FOLDER, f"{item_id}{ext}")
-                            if os.path.exists(path):
-                                st.image(path, use_container_width=True)
-                                img_found = True
-                                break
-                    if not img_found:
-                        st.image("https://via.placeholder.com/150?text=No+Photo", use_container_width=True)
-                
-                with col_info:
-                    st.markdown(f"### {row.get('品名', '未命名')}")
-                    st.write(f"**📍 口座：** `{row.get('口座', '-')}`")
-                    st.write(f"**🆔 代號：** `{item_id}`")
-                    st.write(f"**📂 類型：** `{row.get('類型', '-')}`")
+                # 手機上使用 1:3:1 的緊湊比例
+                col_bc, col_info, col_img = st.columns([1, 3, 1])
                 
                 with col_bc:
                     if barcode_val and barcode_val != 'nan':
-                        # 生成條碼圖片
-                        barcode_url = f"https://bwipjs-api.metafloor.com/?bcid=code128&text={barcode_val}&scale=3&rotate=N&includetext"
-                        st.image(barcode_url, caption="掃描條碼", use_container_width=True)
+                        barcode_url = f"https://bwipjs-api.metafloor.com/?bcid=code128&text={barcode_val}&scale=2&rotate=N&includetext"
+                        # 💡 套用手動大小設定
+                        st.image(barcode_url, width=img_size)
+                
+                with col_info:
+                    st.markdown(f"**{row.get('品名', '未命名')}**")
+                    st.caption(f"口座: {row.get('口座', '-')} | 代號: {item_id}")
+                
+                with col_img:
+                    img_found = False
+                    if item_id != 'unknown':
+                        for ext in ['.jpg', '.png', '.jpeg']:
+                            path = os.path.join(IMAGE_FOLDER, f"{item_id}{ext}")
+                            if os.path.exists(path):
+                                # 💡 套用手動大小設定
+                                st.image(path, width=img_size)
+                                img_found = True
+                                break
+                    if not img_found:
+                        st.image("https://via.placeholder.com/100?text=No+Img", width=img_size)
                 st.divider()
     else:
-        st.info("💡 請在左側選擇分類或輸入關鍵字。")
-        st.metric("資料庫總品項數", len(df))
+        st.info("💡 請從左側選單開始搜尋。")
 else:
-    st.error("❌ 找不到主資料檔 data.xlsx")
+    st.error("❌ 找不到資料檔 data.xlsx")
