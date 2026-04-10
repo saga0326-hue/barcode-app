@@ -24,7 +24,7 @@ def load_data(path):
             st.error(f"讀取 {os.path.basename(path)} 失敗: {e}")
     return None
 
-st.title("🛡️ 團隊共享：條碼與影像")
+st.title("🛡️ 團隊共享：商品稽核與影像系統")
 st.markdown("---")
 
 # 3. 載入資料
@@ -38,15 +38,15 @@ if df is not None:
     # 4. 下拉選單邏輯 (強制校正版)
     selected_type = "全部"
     if df_cat is not None:
-        # 💡 強力校正：如果找不到「類型」標題，強制把第一欄定義為類型，第二欄為代號
         if '類型' not in df_cat.columns:
-            df_cat.rename(columns={df_cat.columns[0]: '類型', df_cat.columns[1]: '商品代號'}, inplace=True)
+            # 如果讀不到標題，強制把前兩欄改名
+            try:
+                df_cat.rename(columns={df_cat.columns[0]: '類型', df_cat.columns[1]: '商品代號'}, inplace=True)
+            except:
+                pass
         
-        # 取得類型清單
         cat_list = ["全部"] + sorted(df_cat['類型'].dropna().unique().tolist())
         selected_type = st.sidebar.selectbox("📂 常用類型快選", cat_list)
-    else:
-        st.sidebar.info("💡 尚未載入 categories.xlsx")
 
     search_name = st.sidebar.text_input("品名搜尋", placeholder="關鍵字...")
     search_loc = st.sidebar.text_input("口座搜尋", placeholder="例如：07")
@@ -55,11 +55,8 @@ if df is not None:
     # --- 5. 篩選邏輯 ---
     filtered_df = df.copy()
     
-    # 類別連動邏輯
     if selected_type != "全部":
-        # 找出分類檔中屬於該類型的商品代號
         target_ids = df_cat[df_cat['類型'] == selected_type]['商品代號'].tolist()
-        # 回到主檔過濾
         filtered_df = filtered_df[filtered_df['商品代號'].isin(target_ids)]
 
     if search_name:
@@ -83,6 +80,33 @@ if df is not None:
             clean_barcode = str(row['條碼']).strip('*')
             item_id = str(row['商品代號'])
             
-            # 支援 .jpg 與 .png 圖片格式
             img_path_jpg = os.path.join(IMAGE_FOLDER, f"{item_id}.jpg")
-            img_path_png = os.path.join(IMAGE_FOLDER, f"{item_
+            img_path_png = os.path.join(IMAGE_FOLDER, f"{item_id}.png")
+            
+            with st.container():
+                col_img, col_info, col_bc = st.columns([1.5, 2.5, 1.5])
+                with col_img:
+                    if os.path.exists(img_path_jpg):
+                        st.image(img_path_jpg, use_container_width=True)
+                    elif os.path.exists(img_path_png):
+                        st.image(img_path_png, use_container_width=True)
+                    else:
+                        st.image("https://via.placeholder.com/150?text=No+Photo", use_container_width=True)
+                with col_info:
+                    st.markdown(f"### {row['品名']}")
+                    st.write(f"**📍 口座：** `{row['口座']}`")
+                    st.write(f"**🆔 代號：** `{item_id}`")
+                with col_bc:
+                    barcode_url = f"https://bwipjs-api.metafloor.com/?bcid=code128&text={clean_barcode}&scale=3&rotate=N&includetext"
+                    st.image(barcode_url, caption="掃描用條碼", use_container_width=True)
+                st.divider()
+    else:
+        st.info("💡 請從左側選擇「常用類型」或輸入關鍵字搜尋商品。")
+        st.metric("資料庫總品項", len(df))
+        
+        with st.expander("🛠️ 系統狀態檢查"):
+            st.write(f"圖片目錄路徑: `{IMAGE_FOLDER}`")
+            if df_cat is not None:
+                st.write(f"分類檔欄位: `{list(df_cat.columns)}`")
+else:
+    st.error("❌ 找不到主資料檔 data.xlsx")
