@@ -22,7 +22,7 @@ def load_data(source):
         st.error(f"讀取檔案時發生錯誤: {e}")
         return None
 
-st.title("🛡️ 團隊共享：商品稽核與條碼系統")
+st.title("🛡️ 團隊共享：商品條碼系統")
 st.markdown("---")
 
 # 4. 資料來源判定邏輯
