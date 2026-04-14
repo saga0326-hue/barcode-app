@@ -28,6 +28,9 @@ df_cat = fetch_data(CAT_URL)
 st.sidebar.header("🔍 篩選與設定")
 img_size = st.sidebar.slider("圖片/條碼大小", 50, 300, 150, 10)
 
+# 排序選項
+sort_order = st.sidebar.radio("排序方式", ["品名遞增 (A-Z)", "品名遞減 (Z-A)"])
+
 selected_type = "全部"
 if isinstance(df_cat, pd.DataFrame) and '類型' in df_cat.columns:
     unique_types = df_cat['類型'].dropna().unique().tolist()
@@ -41,7 +44,7 @@ search_code = st.sidebar.text_input("條碼/代號搜尋")
 if isinstance(df, pd.DataFrame):
     filtered_df = df.copy()
     
-    # 篩選邏輯
+    # 1. 篩選邏輯
     if selected_type != "全部" and isinstance(df_cat, pd.DataFrame):
         target_barcodes = df_cat[df_cat['類型'] == selected_type]['條碼'].unique().tolist()
         filtered_df = filtered_df[filtered_df['條碼'].isin(target_barcodes)]
@@ -53,9 +56,16 @@ if isinstance(df, pd.DataFrame):
                 filtered_df['商品代號'].str.contains(search_code, na=False))
         filtered_df = filtered_df[mask]
 
+    # 2. 【核心修改：品名排序】
+    if not filtered_df.empty and '品名' in filtered_df.columns:
+        is_ascending = True if sort_order == "品名遞增 (A-Z)" else False
+        filtered_df = filtered_df.sort_values(by='品名', ascending=is_ascending)
+
+    # 3. 顯示結果
     if search_name or search_code or selected_type != "全部":
         st.success(f"找到 {len(filtered_df)} 筆結果")
         
+        # 限制顯示前 100 筆，避免瀏覽器卡死
         for _, row in filtered_df.head(100).iterrows():
             bc_val = str(row.get('條碼', '')).replace('*', '').strip()
             item_id = str(row.get('商品代號', ''))
@@ -64,15 +74,13 @@ if isinstance(df, pd.DataFrame):
                 col_bc, col_info, col_img = st.columns([1.5, 3, 1.5])
                 with col_bc:
                     if bc_val and bc_val != 'nan':
-                        # 重新加入條碼產生器
                         bc_api = f"https://bwipjs-api.metafloor.com/?bcid=code128&text={bc_val}&scale=2&rotate=N&includetext"
                         st.image(bc_api, width=img_size)
                 with col_info:
                     st.markdown(f"### {row.get('品名', '未知品名')}")
-                    st.write(f"**口味/口味代號:** {row.get('口座', '-')}")
+                    st.write(f"**口座:** {row.get('口座', '-')}")
                     st.write(f"**商品代號:** {item_id}")
                 with col_img:
-                    # 顯示圖片欄位的網址或預設圖
                     img_url = row.get('圖片', '')
                     if isinstance(img_url, str) and img_url.startswith('http'):
                         st.image(img_url, width=img_size)
@@ -80,6 +88,7 @@ if isinstance(df, pd.DataFrame):
                         st.image("https://via.placeholder.com/150?text=No+Image", width=img_size)
             st.divider()
     else:
+        st.info("💡 請在左側輸入搜尋條件。")
         st.metric("雲端總品項", len(df))
 else:
     st.error("資料庫連線中...")
