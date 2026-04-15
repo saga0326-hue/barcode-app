@@ -3,8 +3,10 @@ import pandas as pd
 import requests
 import json
 
+# 1. 基本頁面設定
 st.set_page_config(page_title="專業商品條碼系統", layout="wide", page_icon="📦")
 
+# 2. 強化版讀取函式
 @st.cache_data(ttl=60)
 def fetch_data(url):
     try:
@@ -16,64 +18,69 @@ def fetch_data(url):
     except Exception as e:
         return f"ERROR: {str(e)}"
 
-# 取得網址
+# 3. 取得網址 (從 Secrets 抓取)
 DATA_URL = st.secrets["data_url"]
 CAT_URL = st.secrets["cat_url"]
-SCRIPT_URL = st.secrets.get("script_url", "") # 新增寫入網址
+SCRIPT_URL = st.secrets.get("script_url", "")
 
 st.title("🛡️ 團隊共享：條碼系統")
 
 df_main = fetch_data(DATA_URL)
 df_cat = fetch_data(CAT_URL)
 
-# --- 側邊欄：新增功能 ---
-st.sidebar.header("➕ 新增商品 (至 Categories)")
-with st.sidebar.expander("點此填寫新商品資訊"):
-    new_type = st.text_input("類型 (例如: 扭蛋)")
-    new_name = st.text_input("品名")
-    new_bc = st.text_input("條碼")
-    
-    if st.button("確認送出"):
-        if new_type and new_name and new_bc:
-            if SCRIPT_URL:
-                payload = {
-                    "type": new_type,
-                    "name": new_name,
-                    "barcode": new_bc
-                }
-                try:
-                    # 發送 POST 請求到 Google Apps Script
-                    response = requests.post(SCRIPT_URL, data=json.dumps(payload))
-                    if response.text == "Success":
-                        st.sidebar.success("✅ 已成功新增至雲端！")
-                        st.cache_data.clear() # 清除快取以便看到新資料
-                    else:
-                        st.sidebar.error("❌ 新增失敗，請檢查 Script 設定")
-                except Exception as e:
-                    st.sidebar.error(f"連線錯誤: {e}")
-            else:
-                st.sidebar.warning("請先在 Secrets 設定 script_url")
-        else:
-            st.sidebar.warning("請填寫完整三個欄位")
-
-st.sidebar.markdown("---")
-
-# --- 原有的篩選與顯示邏輯 ---
+# --- 側邊欄控制區 ---
 st.sidebar.header("🔍 篩選與設定")
 img_size = st.sidebar.slider("圖片/條碼大小", 50, 300, 150, 10)
 sort_order = st.sidebar.radio("排序方式", ["品名遞增 (A-Z)", "品名遞減 (Z-A)"])
 
-# 分類選單
-selected_type = "全部"
+# 取得現有類別清單
+unique_types = []
 if isinstance(df_cat, pd.DataFrame) and '類型' in df_cat.columns:
-    unique_types = df_cat['類型'].dropna().unique().tolist()
-    cat_list = ["全部"] + sorted([str(t) for t in unique_types if t])
-    selected_type = st.sidebar.selectbox("📂 常用類型快選", cat_list)
+    unique_types = sorted([str(t) for t in df_cat['類型'].dropna().unique() if str(t) != 'nan' and str(t) != ''])
+
+# 查詢模式的分類選單
+selected_type = st.sidebar.selectbox("📂 常用類型快選", ["全部"] + unique_types)
 
 search_name = st.sidebar.text_input("品名搜尋")
 search_code = st.sidebar.text_input("條碼/代號搜尋")
 
-# (以下顯示邏輯與你之前的正確版一致...)
+st.sidebar.markdown("---")
+
+# --- 將【新增】區塊移至最下方 ---
+st.sidebar.header("➕ 新增商品")
+with st.sidebar.expander("展開填寫新資訊"):
+    # 類型改為下拉式選單
+    type_options = unique_types + ["➕ 新增其他類別..."]
+    chosen_type = st.selectbox("選擇類別", type_options)
+    
+    final_type = ""
+    if chosen_type == "➕ 新增其他類別...":
+        final_type = st.text_input("請輸入新類別名稱")
+    else:
+        final_type = chosen_type
+        
+    new_name = st.text_input("品名 (必填)")
+    new_bc = st.text_input("條碼 (必填)")
+    
+    if st.button("確認送出"):
+        if final_type and new_name and new_bc:
+            if SCRIPT_URL:
+                payload = {"type": final_type, "name": new_name, "barcode": new_bc}
+                try:
+                    response = requests.post(SCRIPT_URL, data=json.dumps(payload))
+                    if response.text == "Success":
+                        st.sidebar.success(f"✅ 【{new_name}】已成功新增！")
+                        st.cache_data.clear() # 清除快取以刷新下拉選單
+                    else:
+                        st.sidebar.error("❌ 新增失敗，請檢查 Script 權限")
+                except Exception as e:
+                    st.sidebar.error(f"連線錯誤: {e}")
+            else:
+                st.sidebar.warning("請先設定 script_url")
+        else:
+            st.sidebar.warning("請填寫完整資訊")
+
+# --- 核心邏輯：顯示搜尋結果 ---
 if isinstance(df_main, pd.DataFrame) and isinstance(df_cat, pd.DataFrame):
     if selected_type == "全部":
         work_df = df_main.copy()
@@ -136,7 +143,7 @@ if isinstance(df_main, pd.DataFrame) and isinstance(df_cat, pd.DataFrame):
                         st.image(img_url, width=img_size)
             st.divider()
     else:
-        st.info("💡 請在左側輸入搜尋條件。")
+        st.info("💡 請在左側輸入搜尋條件或選擇常用類型。")
         st.metric("雲端總品項 (Data)", len(df_main))
 else:
     st.error("資料庫連線中...")
