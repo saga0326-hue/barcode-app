@@ -21,7 +21,7 @@ CAT_URL = st.secrets["cat_url"]
 
 st.title("🛡️ 團隊共享：條碼系統")
 
-df = fetch_data(DATA_URL)
+df_main = fetch_data(DATA_URL)
 df_cat = fetch_data(CAT_URL)
 
 # --- 側邊欄 ---
@@ -29,6 +29,7 @@ st.sidebar.header("🔍 篩選與設定")
 img_size = st.sidebar.slider("圖片/條碼大小", 50, 300, 150, 10)
 sort_order = st.sidebar.radio("排序方式", ["品名遞增 (A-Z)", "品名遞減 (Z-A)"])
 
+# 建立分類選單
 selected_type = "全部"
 if isinstance(df_cat, pd.DataFrame) and '類型' in df_cat.columns:
     unique_types = df_cat['類型'].dropna().unique().tolist()
@@ -38,59 +39,50 @@ if isinstance(df_cat, pd.DataFrame) and '類型' in df_cat.columns:
 search_name = st.sidebar.text_input("品名搜尋")
 search_code = st.sidebar.text_input("條碼/代號搜尋")
 
-# --- 主畫面顯示 ---
-if isinstance(df, pd.DataFrame):
-    filtered_df = df.copy()
+# --- 核心邏輯：根據選擇切換資料來源 ---
+if isinstance(df_main, pd.DataFrame) and isinstance(df_cat, pd.DataFrame):
     
-    # 1. 篩選邏輯
-    if selected_type != "全部" and isinstance(df_cat, pd.DataFrame):
-        target_barcodes = df_cat[df_cat['類型'] == selected_type]['條碼'].unique().tolist()
-        filtered_df = filtered_df[filtered_df['條碼'].isin(target_barcodes)]
-    
+    # 決定基礎資料來源
+    if selected_type == "全部":
+        # 模式 A: 使用完整的 Data 資料庫
+        work_df = df_main.copy()
+        source_label = "主資料庫 (Data)"
+    else:
+        # 模式 B: 切換至 Categories 資料庫並過濾類型
+        work_df = df_cat[df_cat['類型'] == selected_type].copy()
+        source_label = f"分類表 (Categories) - {selected_type}"
+
+    # 執行關鍵字過濾
     if search_name:
-        filtered_df = filtered_df[filtered_df['品名'].str.contains(search_name, na=False)]
+        work_df = work_df[work_df['品名'].str.contains(search_name, na=False)]
     if search_code:
-        mask = (filtered_df['條碼'].str.contains(search_code, na=False) | 
-                filtered_df['商品代號'].str.contains(search_code, na=False))
-        filtered_df = filtered_df[mask]
+        mask = (work_df['條碼'].str.contains(search_code, na=False) | 
+                work_df['商品代號'].str.contains(search_code, na=False))
+        work_df = work_df[mask]
 
-    # 2. 品名排序
-    if not filtered_df.empty and '品名' in filtered_df.columns:
+    # 品名排序
+    if not work_df.empty and '品名' in work_df.columns:
         is_ascending = True if sort_order == "品名遞增 (A-Z)" else False
-        filtered_df = filtered_df.sort_values(by='品名', ascending=is_ascending)
+        work_df = work_df.sort_values(by='品名', ascending=is_ascending)
 
-    # 3. 顯示結果
+    # 顯示結果
     if search_name or search_code or selected_type != "全部":
-        st.success(f"找到 {len(filtered_df)} 筆結果")
+        st.caption(f"📍 目前搜尋範圍：{source_label}")
+        st.success(f"找到 {len(work_df)} 筆結果")
         
-        for _, row in filtered_df.head(100).iterrows():
+        for _, row in work_df.head(100).iterrows():
             bc_val = str(row.get('條碼', '')).replace('*', '').strip()
             item_id = str(row.get('商品代號', ''))
             img_url = str(row.get('圖片', '')).strip()
             
-            # 取得 Data 的品名
-            main_name = row.get('品名', '未知品名')
+            # 取得主要顯示名稱
+            display_name = row.get('品名', '未知品名')
             
-            # --- 雙品名比對機制 ---
-            sub_name = ""
-            if isinstance(df_cat, pd.DataFrame) and bc_val:
-                # 在 Categories 表中根據條碼尋找對應的品名
-                cat_match = df_cat[df_cat['條碼'] == bc_val]
-                if not cat_match.empty:
-                    sub_name = cat_match.iloc[0].get('品名', '')
-            
-            has_image = isinstance(img_url, str) and img_url.startswith('http')
-            
-            with st.container():
-                if has_image:
-                    col_bc, col_info, col_img = st.columns([1.5, 3, 1.5])
-                else:
-                    col_bc, col_info = st.columns([1.5, 4.5])
-                
-                with col_bc:
-                    if bc_val and bc_val != 'nan':
-                        bc_api = f"https://bwipjs-api.metafloor.com/?bcid=code128&text={bc_val}&scale=2&rotate=N&includetext"
-                        st.image(bc_api, width=img_size)
-                
-                with col_info:
-                    st.markdown(f"### {main_name}")
+            # --- 雙品名比對 (若在分類模式，嘗試找 Data 的原始品名作對照) ---
+            sub_title = ""
+            if selected_type != "全部" and bc_val:
+                data_match = df_main[df_main['條碼'] == bc_val]
+                if not data_match.empty:
+                    data_name = data_match.iloc[0].get('品名', '')
+                    if data_name != display_name:
+                        sub_
