@@ -19,7 +19,7 @@ def fetch_data(url):
 DATA_URL = st.secrets["data_url"]
 CAT_URL = st.secrets["cat_url"]
 
-st.title("🛡️ 團隊共享：雲端條碼系統")
+st.title("🛡️ 團隊共享：條碼系統")
 
 df = fetch_data(DATA_URL)
 df_cat = fetch_data(CAT_URL)
@@ -27,8 +27,6 @@ df_cat = fetch_data(CAT_URL)
 # --- 側邊欄 ---
 st.sidebar.header("🔍 篩選與設定")
 img_size = st.sidebar.slider("圖片/條碼大小", 50, 300, 150, 10)
-
-# 排序選項
 sort_order = st.sidebar.radio("排序方式", ["品名遞增 (A-Z)", "品名遞減 (Z-A)"])
 
 selected_type = "全部"
@@ -70,15 +68,24 @@ if isinstance(df, pd.DataFrame):
             item_id = str(row.get('商品代號', ''))
             img_url = str(row.get('圖片', '')).strip()
             
-            # 判斷是否有有效的圖片網址
+            # 取得 Data 的品名
+            main_name = row.get('品名', '未知品名')
+            
+            # --- 雙品名比對機制 ---
+            sub_name = ""
+            if isinstance(df_cat, pd.DataFrame) and bc_val:
+                # 在 Categories 表中根據條碼尋找對應的品名
+                cat_match = df_cat[df_cat['條碼'] == bc_val]
+                if not cat_match.empty:
+                    sub_name = cat_match.iloc[0].get('品名', '')
+            
             has_image = isinstance(img_url, str) and img_url.startswith('http')
             
             with st.container():
-                # 如果有圖，維持三欄；沒圖，則只給兩欄空間，讓條碼與資訊更寬
                 if has_image:
                     col_bc, col_info, col_img = st.columns([1.5, 3, 1.5])
                 else:
-                    col_bc, col_info = st.columns([1.5, 4.5]) # 沒圖時，右側空間由資訊補齊
+                    col_bc, col_info = st.columns([1.5, 4.5])
                 
                 with col_bc:
                     if bc_val and bc_val != 'nan':
@@ -86,16 +93,4 @@ if isinstance(df, pd.DataFrame):
                         st.image(bc_api, width=img_size)
                 
                 with col_info:
-                    st.markdown(f"### {row.get('品名', '未知品名')}")
-                    st.write(f"**口座:** {row.get('口座', '-')}")
-                    st.write(f"**商品代號:** {item_id}")
-                
-                if has_image:
-                    with col_img:
-                        st.image(img_url, width=img_size)
-            st.divider()
-    else:
-        st.info("💡 請在左側輸入搜尋條件。")
-        st.metric("雲端總品項", len(df))
-else:
-    st.error("資料庫連線中...")
+                    st.markdown(f"### {main_name}")
