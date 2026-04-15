@@ -19,7 +19,7 @@ def fetch_data(url):
 DATA_URL = st.secrets["data_url"]
 CAT_URL = st.secrets["cat_url"]
 
-st.title("🛡️ 團隊共享：雲端商品管理系統")
+st.title("🛡️ 團隊共享：雲端條碼系統")
 
 df = fetch_data(DATA_URL)
 df_cat = fetch_data(CAT_URL)
@@ -56,7 +56,7 @@ if isinstance(df, pd.DataFrame):
                 filtered_df['商品代號'].str.contains(search_code, na=False))
         filtered_df = filtered_df[mask]
 
-    # 2. 【核心修改：品名排序】
+    # 2. 品名排序
     if not filtered_df.empty and '品名' in filtered_df.columns:
         is_ascending = True if sort_order == "品名遞增 (A-Z)" else False
         filtered_df = filtered_df.sort_values(by='品名', ascending=is_ascending)
@@ -65,27 +65,34 @@ if isinstance(df, pd.DataFrame):
     if search_name or search_code or selected_type != "全部":
         st.success(f"找到 {len(filtered_df)} 筆結果")
         
-        # 限制顯示前 100 筆，避免瀏覽器卡死
         for _, row in filtered_df.head(100).iterrows():
             bc_val = str(row.get('條碼', '')).replace('*', '').strip()
             item_id = str(row.get('商品代號', ''))
+            img_url = str(row.get('圖片', '')).strip()
+            
+            # 判斷是否有有效的圖片網址
+            has_image = isinstance(img_url, str) and img_url.startswith('http')
             
             with st.container():
-                col_bc, col_info, col_img = st.columns([1.5, 3, 1.5])
+                # 如果有圖，維持三欄；沒圖，則只給兩欄空間，讓條碼與資訊更寬
+                if has_image:
+                    col_bc, col_info, col_img = st.columns([1.5, 3, 1.5])
+                else:
+                    col_bc, col_info = st.columns([1.5, 4.5]) # 沒圖時，右側空間由資訊補齊
+                
                 with col_bc:
                     if bc_val and bc_val != 'nan':
                         bc_api = f"https://bwipjs-api.metafloor.com/?bcid=code128&text={bc_val}&scale=2&rotate=N&includetext"
                         st.image(bc_api, width=img_size)
+                
                 with col_info:
                     st.markdown(f"### {row.get('品名', '未知品名')}")
                     st.write(f"**口座:** {row.get('口座', '-')}")
                     st.write(f"**商品代號:** {item_id}")
-                with col_img:
-                    img_url = row.get('圖片', '')
-                    if isinstance(img_url, str) and img_url.startswith('http'):
+                
+                if has_image:
+                    with col_img:
                         st.image(img_url, width=img_size)
-                    else:
-                        st.image("https://via.placeholder.com/150?text=No+Image", width=img_size)
             st.divider()
     else:
         st.info("💡 請在左側輸入搜尋條件。")
