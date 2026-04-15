@@ -55,6 +55,14 @@ if isinstance(df_main, pd.DataFrame) and isinstance(df_cat, pd.DataFrame):
         work_df = df_cat[df_cat['類型'] == selected_type].copy()
         source_label = f"分類表 (Categories) - {selected_type}"
 
-    # 執行關鍵字過濾
+    # 執行關鍵字過濾 (修正括號問題)
     if search_name:
-        work_df = work_df[work_df['品名'].str.contains(search_name, na=False
+        work_df = work_df[work_df['品名'].str.contains(search_name, na=False)]
+        
+    if search_code:
+        mask = pd.Series([False] * len(work_df), index=work_df.index)
+        if '條碼' in work_df.columns:
+            mask |= work_df['條碼'].str.contains(search_code, na=False)
+        if '商品代號' in work_df.columns:
+            mask |= work_df['商品代號'].str.contains(search_code, na=False)
+        work_df = work_df[mask
