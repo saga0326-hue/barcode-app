@@ -3,25 +3,31 @@ import pandas as pd
 import requests
 import json
 
-# 1. 基本頁面設定
+# 1. 基本頁面設定 (手機優先配置)
 st.set_page_config(page_title="專業商品條碼系統", layout="wide", page_icon="📦")
 
-# 2. 強化版讀取函式
+# 2. 強化版讀取函式：含資料清理與快取
 @st.cache_data(ttl=60)
 def fetch_data(url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
+        # 讀取並強制轉為字串處理，避免科學記號
         df = pd.read_csv(url, dtype=str, storage_options=headers)
         df.columns = df.columns.str.strip()
-        df = df.apply(lambda x: x.str.strip() if isinstance(x, str) else x)
+        # 技術細節：清理所有欄位的空格與特殊星號
+        df = df.apply(lambda x: x.str.strip().str.replace('*', '', regex=False) if isinstance(x, str) else x)
         return df
     except Exception as e:
         return f"ERROR: {str(e)}"
 
-# 3. 取得網址 (從 Secrets 抓取)
-DATA_URL = st.secrets["data_url"]
-CAT_URL = st.secrets["cat_url"]
-SCRIPT_URL = st.secrets.get("script_url", "")
+# 3. 取得網址 (從 streamlit/secrets.toml 抓取)
+try:
+    DATA_URL = st.secrets["data_url"]
+    CAT_URL = st.secrets["cat_url"]
+    SCRIPT_URL = st.secrets.get("script_url", "")
+except Exception:
+    st.error("❌ 請先在 secrets.toml 中設定 data_url, cat_url 與 script_url")
+    st.stop()
 
 st.title("🛡️ 團隊共享：條碼系統")
 
@@ -30,7 +36,7 @@ df_cat = fetch_data(CAT_URL)
 
 # --- 側邊欄控制區 ---
 st.sidebar.header("🔍 篩選與設定")
-img_size = st.sidebar.slider("圖片/條碼大小", 50, 300, 150, 10)
+img_size = st.sidebar.slider("圖片/條碼顯示大小", 50, 300, 150, 10)
 sort_order = st.sidebar.radio("排序方式", ["品名遞增 (A-Z)", "品名遞減 (Z-A)"])
 
 # 取得現有類別清單
@@ -41,15 +47,17 @@ if isinstance(df_cat, pd.DataFrame) and '類型' in df_cat.columns:
 # 查詢模式的分類選單
 selected_type = st.sidebar.selectbox("📂 常用類型快選", ["全部"] + unique_types)
 
-search_name = st.sidebar.text_input("品名搜尋")
-search_code = st.sidebar.text_input("條碼/代號搜尋")
+search_name = st.sidebar.text_input("📝 品名搜尋")
+
+# 優化 1：條碼搜尋改用數字輸入，自動喚起手機數字鍵盤
+search_code_num = st.sidebar.number_input("🔢 條碼/代號搜尋", value=0, step=1, format="%d")
+search_code = str(search_code_num) if search_code_num != 0 else ""
 
 st.sidebar.markdown("---")
 
-# --- 將【新增】區塊移至最下方 ---
+# --- 側邊欄：新增商品區 ---
 st.sidebar.header("➕ 新增商品")
 with st.sidebar.expander("展開填寫新資訊"):
-    # 類型改為下拉式選單
     type_options = unique_types + ["➕ 新增其他類別..."]
     chosen_type = st.selectbox("選擇類別", type_options)
     
@@ -59,91 +67,4 @@ with st.sidebar.expander("展開填寫新資訊"):
     else:
         final_type = chosen_type
         
-    new_name = st.text_input("品名 (必填)")
-    new_bc = st.text_input("條碼 (必填)")
-    
-    if st.button("確認送出"):
-        if final_type and new_name and new_bc:
-            if SCRIPT_URL:
-                payload = {"type": final_type, "name": new_name, "barcode": new_bc}
-                try:
-                    response = requests.post(SCRIPT_URL, data=json.dumps(payload))
-                    if response.text == "Success":
-                        st.sidebar.success(f"✅ 【{new_name}】已成功新增！")
-                        st.cache_data.clear() # 清除快取以刷新下拉選單
-                    else:
-                        st.sidebar.error("❌ 新增失敗，請檢查 Script 權限")
-                except Exception as e:
-                    st.sidebar.error(f"連線錯誤: {e}")
-            else:
-                st.sidebar.warning("請先設定 script_url")
-        else:
-            st.sidebar.warning("請填寫完整資訊")
-
-# --- 核心邏輯：顯示搜尋結果 ---
-if isinstance(df_main, pd.DataFrame) and isinstance(df_cat, pd.DataFrame):
-    if selected_type == "全部":
-        work_df = df_main.copy()
-        source_label = "主資料庫 (Data)"
-    else:
-        work_df = df_cat[df_cat['類型'] == selected_type].copy()
-        source_label = f"分類表 (Categories) - {selected_type}"
-
-    if search_name:
-        work_df = work_df[work_df['品名'].str.contains(search_name, na=False)]
-    if search_code:
-        mask = pd.Series([False] * len(work_df), index=work_df.index)
-        if '條碼' in work_df.columns:
-            mask |= work_df['條碼'].str.contains(search_code, na=False)
-        if '商品代號' in work_df.columns:
-            mask |= work_df['商品代號'].str.contains(search_code, na=False)
-        work_df = work_df[mask]
-
-    if not work_df.empty and '品名' in work_df.columns:
-        is_ascending = True if sort_order == "品名遞增 (A-Z)" else False
-        work_df = work_df.sort_values(by='品名', ascending=is_ascending)
-
-    if search_name or search_code or selected_type != "全部":
-        st.caption(f"📍 目前搜尋範圍：{source_label}")
-        st.success(f"找到 {len(work_df)} 筆結果")
-        for _, row in work_df.head(100).iterrows():
-            bc_val = str(row.get('條碼', '')).replace('*', '').strip()
-            item_id = str(row.get('商品代號', ''))
-            img_url = str(row.get('圖片', '')).strip()
-            display_name = row.get('品名', '未知品名')
-            
-            sub_title = ""
-            if selected_type != "全部" and bc_val and bc_val != 'nan' and bc_val != '':
-                data_match = df_main[df_main['條碼'] == bc_val]
-                if not data_match.empty:
-                    data_name = data_match.iloc[0].get('品名', '')
-                    if data_name != display_name:
-                        sub_title = f"原始品名：{data_name}"
-
-            has_image = isinstance(img_url, str) and img_url.startswith('http')
-            with st.container():
-                if has_image:
-                    col_bc, col_info, col_img = st.columns([1.5, 3, 1.5])
-                else:
-                    col_bc, col_info = st.columns([1.5, 4.5])
-                with col_bc:
-                    if bc_val and bc_val != 'nan' and bc_val != '':
-                        bc_api = f"https://bwipjs-api.metafloor.com/?bcid=code128&text={bc_val}&scale=2&rotate=N&includetext"
-                        st.image(bc_api, width=img_size)
-                    else:
-                        st.caption("⚠️ 無條碼資料")
-                with col_info:
-                    st.markdown(f"### {display_name}")
-                    if sub_title:
-                        st.caption(sub_title)
-                    st.write(f"**口座:** {row.get('口座', '-')}")
-                    st.write(f"**商品代號:** {item_id}")
-                if has_image:
-                    with col_img:
-                        st.image(img_url, width=img_size)
-            st.divider()
-    else:
-        st.info("💡 請在左側輸入搜尋條件或選擇常用類型。")
-        st.metric("雲端總品項 (Data)", len(df_main))
-else:
-    st.error("資料庫連線中...")
+    new
