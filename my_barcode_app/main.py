@@ -2,9 +2,26 @@ import streamlit as st
 import pandas as pd
 import requests
 import json
+import streamlit.components.v1 as components
 
 # 1. 基本頁面設定
 st.set_page_config(page_title="專業商品條碼系統", layout="wide", page_icon="📦")
+
+# --- 核心：強制手機跳出數字鍵盤的 JavaScript ---
+# 這段程式碼會尋找所有的 input 框，並將其類型改為 tel (最適合輸入條碼的數字鍵盤)
+def force_numeric_keyboard():
+    components.html(
+        """
+        <script>
+            var input = window.parent.document.querySelectorAll("input[type='text']");
+            for (var i = 0; i < input.length; i++) {
+                input[i].setAttribute("inputmode", "numeric");
+                input[i].setAttribute("pattern", "[0-9]*");
+            }
+        </script>
+        """,
+        height=0,
+    )
 
 # 2. 強化版讀取函式
 @st.cache_data(ttl=60)
@@ -13,7 +30,6 @@ def fetch_data(url):
         headers = {'User-Agent': 'Mozilla/5.0'}
         df = pd.read_csv(url, dtype=str, storage_options=headers)
         df.columns = df.columns.str.strip()
-        # 處理空值與星號，確保資料強健
         for col in df.columns:
             df[col] = df[col].fillna("").astype(str).str.strip()
             if col == '條碼':
@@ -22,7 +38,7 @@ def fetch_data(url):
     except Exception as e:
         return f"ERROR: {str(e)}"
 
-# 3. 取得網址 (從 Secrets 讀取)
+# 3. 取得網址
 try:
     DATA_URL = st.secrets["data_url"]
     CAT_URL = st.secrets["cat_url"]
@@ -32,6 +48,7 @@ except:
     st.stop()
 
 st.title("🛡️ 團隊共享：條碼系統")
+force_numeric_keyboard() # 執行 JS 腳本
 
 df_main = fetch_data(DATA_URL)
 df_cat = fetch_data(CAT_URL)
@@ -41,14 +58,13 @@ st.sidebar.header("🔍 篩選與設定")
 img_size = st.sidebar.slider("圖片/條碼大小", 50, 300, 150, 10)
 sort_order = st.sidebar.radio("排序方式", ["品名遞增 (A-Z)", "品名遞減 (Z-A)"])
 
-# 取得類別清單
 unique_types = sorted([str(t) for t in df_cat['類型'].unique() if t and t != 'nan'])
 selected_type = st.sidebar.selectbox("📂 常用類型快選", ["全部"] + unique_types)
 
-search_name = st.sidebar.text_input("📝 品名搜尋", placeholder="請輸入關鍵字...")
+search_name = st.sidebar.text_input("📝 品名搜尋", placeholder="輸入名稱...")
 
-# 【重點修改】：改回 text_input 以去掉加減號，外觀最簡潔
-search_code = st.sidebar.text_input("🔢 條碼/代號搜尋", placeholder="請 KEY 入數字...")
+# 使用 text_input 確保沒有加減號，JS 會負責讓它跳出數字鍵盤
+search_code = st.sidebar.text_input("🔢 條碼/代號搜尋", placeholder="點擊此處輸入數字...")
 
 st.sidebar.markdown("---")
 
@@ -60,9 +76,7 @@ with st.sidebar.expander("展開填寫新資訊"):
     final_type = st.text_input("新類別名稱") if chosen_type == "➕ 新增其他類別..." else chosen_type
     
     new_name = st.text_input("商品品名 (必填)")
-    
-    # 【重點修改】：新增商品條碼也改用 text_input，去掉旁邊的加減按鈕
-    new_bc = st.text_input("商品條碼 (必填)", placeholder="請輸入條碼數字")
+    new_bc = st.text_input("商品條碼 (必填)", placeholder="直接輸入條碼...")
     
     if st.button("🚀 確認送出"):
         if final_type and new_name and new_bc:
@@ -78,14 +92,12 @@ with st.sidebar.expander("展開填寫新資訊"):
 
 # --- 核心邏輯：顯示搜尋結果 ---
 if isinstance(df_main, pd.DataFrame):
-    # 判斷是否「有輸入條件」
-    has_search_criteria = (search_name != "") or (search_code != "") or (selected_type != "全部")
+    # 邏輯優化：只有在非「全部」或有輸入文字時才顯示結果
+    has_search = (search_name != "") or (search_code != "") or (selected_type != "全部")
 
-    if has_search_criteria:
-        # 根據類別選擇初始資料表
+    if has_search:
         work_df = df_main.copy() if selected_type == "全部" else df_cat[df_cat['類型'] == selected_type].copy()
 
-        # 執行過濾
         if search_name:
             work_df = work_df[work_df['品名'].str.contains(search_name, na=False, case=False)]
         if search_code:
@@ -94,7 +106,6 @@ if isinstance(df_main, pd.DataFrame):
                 mask |= work_df['商品代號'].str.contains(search_code, na=False)
             work_df = work_df[mask]
 
-        # 排序
         is_ascending = (sort_order == "品名遞增 (A-Z)")
         work_df = work_df.sort_values(by='品名', ascending=is_ascending).head(100)
 
@@ -113,18 +124,13 @@ if isinstance(df_main, pd.DataFrame):
                     with cols[1]:
                         st.markdown(f"### {row['品名']}")
                         st.write(f"**口座:** `{row.get('口座', '-')}` | **代號:** `{row.get('商品代號', '-')}`")
-                        if bc_val: st.caption(f"條碼細節: {bc_val}")
                     if has_image:
                         with cols[2]: st.image(row['圖片'], width=img_size)
                 st.divider()
         else:
-            st.warning("查無符合條件的商品，請重新輸入。")
+            st.warning("查無符合條件的商品。")
     else:
-        # 初始畫面：不顯示任何商品資料
-        st.info("👋 歡迎使用條碼系統！請在左側「輸入搜尋條件」或「選擇類別」來顯示商品。")
-        
-        # 依然可以顯示統計數據，但不要列出清單
+        # 預設不顯示【全部】資料庫內容
+        st.info("👋 請在左側輸入搜尋關鍵字，或選擇特定類別來查看商品。")
         st.divider()
-        c1, c2 = st.columns(2)
-        c1.metric("主資料庫品項", len(df_main))
-        c2.metric("已分類類別數", len(unique_types))
+        st.metric("資料庫總品項", len(df_main))
