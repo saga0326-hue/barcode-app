@@ -1,0 +1,48 @@
+aiexchiang.pythnanrywhere.com
+
+總時數 預估可節省月勞務
+
+已上線每個月可節省
+
+學習到的技能/工具
+
+1.google alerts
+
+2.notbook lm 
+
+3.claude(Haiku,Sonnet,Opus) Artifacts:chat  Dispatch  (
+
+4.gemini 利用google sheet
+
+5.GIT Hub
+
+6.AI Anget
+
+7.Cowork
+
+8.Code
+
+9.Vive Coding(開發)
+
+10.Skill Agent
+
+11.Zebre
+
+12.nas 伺服器
+
+整合網頁 帳號密碼(安全跟便利)
+
+提案
+1.國際商品點數卡  圖片辨識
+
+2.盤點作業說明書
+
+3.地圖MAP
+
+※爬蟲 審查機制 洞察策略
+
+COWORK
+
+
+Dispatch = 手動
+Schedule = 自動
