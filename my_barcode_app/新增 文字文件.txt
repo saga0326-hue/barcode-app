@@ -46,3 +46,6 @@ COWORK
 
 Dispatch = 手動
 Schedule = 自動
+
+
+GitHub CLI 會將 GitHub 
