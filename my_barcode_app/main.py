@@ -52,7 +52,6 @@ except:
     st.stop()
 
 # --- 主頁面開始 ---
-# 縮小標題：使用 markdown 語法 ### 代替 st.title 以節省空間
 st.markdown("### 🛡️ 團隊共享條碼系統")
 force_numeric_keyboard()
 
@@ -62,9 +61,9 @@ df_cat = fetch_data(CAT_URL)
 if isinstance(df_main, pd.DataFrame):
     tab_search, tab_add, tab_settings = st.tabs(["🔍 快速搜尋", "➕ 新增品項", "⚙️ 設定"])
 
-    # --- Tab 3: 系統設定 (獲取參數) ---
+    # --- Tab 3: 系統設定 ---
     with tab_settings:
-        st.markdown("#### 🖼️ 顯示設定") # 縮小標題
+        st.markdown("#### 🖼️ 顯示設定")
         img_size = st.slider("調整條碼/圖片大小", 50, 400, 150, 10)
         st.divider()
         if st.button("♻️ 強制重新整理資料庫", use_container_width=True):
@@ -73,14 +72,9 @@ if isinstance(df_main, pd.DataFrame):
 
     # --- Tab 1: 搜尋與顯示 ---
     with tab_search:
-        # 並列排版：將類別與排序放在同一列
-        col_type, col_sort = st.columns([3, 2])
+        # 移除排序按鈕，類別選單獨佔一行或搭配標籤
         unique_types = sorted([str(t) for t in df_cat['類型'].unique() if t and t != 'nan'])
-        
-        with col_type:
-            selected_type = st.selectbox("📂 類別", ["全部"] + unique_types, label_visibility="collapsed")
-        with col_sort:
-            sort_order = st.selectbox("🔃 排序", ["遞增", "遞減"], label_visibility="collapsed")
+        selected_type = st.selectbox("📂 選擇類別", ["全部"] + unique_types)
 
         search_name = st.text_input("📝 品名關鍵字", placeholder="品名搜尋...")
         search_code = st.text_input("🔢 條碼/代號搜尋", placeholder="點擊輸入數字...")
@@ -98,11 +92,11 @@ if isinstance(df_main, pd.DataFrame):
                     mask |= work_df['商品代號'].str.contains(search_code, na=False)
                 work_df = work_df[mask]
 
-            is_ascending = (sort_order == "遞增")
-            work_df = work_df.sort_values(by='品名', ascending=is_ascending).head(50)
+            # 固定為預設遞減 (ascending=False)
+            work_df = work_df.sort_values(by='品名', ascending=False).head(50)
 
             if not work_df.empty:
-                st.caption(f"找到 {len(work_df)} 筆結果")
+                st.caption(f"找到 {len(work_df)} 筆結果 (依品名遞減排序)")
                 for _, row in work_df.iterrows():
                     bc_val = row.get('條碼', '')
                     has_image = '圖片' in row and str(row['圖片']).startswith('http')
@@ -115,7 +109,6 @@ if isinstance(df_main, pd.DataFrame):
                             else:
                                 st.caption("無條碼")
                         with c2:
-                            # 顯示品名使用較小的標題
                             st.markdown(f"**{row['品名']}**")
                             st.caption(f"代號: `{row.get('商品代號', '-')}`")
                             if has_image:
