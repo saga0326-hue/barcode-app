@@ -49,3 +49,7 @@ Schedule = 自動
 
 
 GitHub CLI 會將 GitHub 
+
+新增一個SKILL
+
+
