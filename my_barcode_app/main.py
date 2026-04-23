@@ -52,7 +52,7 @@ except:
     st.stop()
 
 # --- 主頁面開始 ---
-st.title("🛡️ 團隊共享條碼系統")
+st.title("🛡️ 共享條碼")
 force_numeric_keyboard()
 
 df_main = fetch_data(DATA_URL)
