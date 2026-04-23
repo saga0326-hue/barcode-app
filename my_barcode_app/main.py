@@ -4,12 +4,12 @@ import requests
 import json
 import streamlit.components.v1 as components
 
-# 1. 基本頁面設定 (針對手機優化)
+# 1. 基本頁面設定
 st.set_page_config(
     page_title="專業商品條碼系統", 
     layout="wide", 
     page_icon="📦",
-    initial_sidebar_state="collapsed" # 預設收起側邊欄，讓主畫面空間最大化
+    initial_sidebar_state="collapsed" 
 )
 
 # --- 核心：強制手機跳出數字鍵盤的 JavaScript ---
@@ -52,15 +52,27 @@ except:
     st.stop()
 
 # --- 主頁面開始 ---
-st.title("🛡️ 共享條碼")
+st.title("🛡️ 團隊共享條碼系統")
 force_numeric_keyboard()
 
 df_main = fetch_data(DATA_URL)
 df_cat = fetch_data(CAT_URL)
 
 if isinstance(df_main, pd.DataFrame):
-    # 使用 Tabs 分隔功能，手機操作更順手
+    # 使用 Tabs 分隔功能
     tab_search, tab_add, tab_settings = st.tabs(["🔍 快速搜尋", "➕ 新增品項", "⚙️ 系統設定"])
+
+    # --- Tab 3: 系統設定 (優先定義，以便搜尋分頁使用參數) ---
+    with tab_settings:
+        st.header("🖼️ 顯示設定")
+        # 在這裡新增調整條碼大小的滑桿
+        img_size = st.slider("調整條碼/圖片大小", min_value=50, max_value=400, value=150, step=10)
+        
+        st.divider()
+        st.header("數據維護")
+        if st.button("♻️ 強制重新整理資料庫", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
 
     # --- Tab 1: 搜尋與顯示 ---
     with tab_search:
@@ -75,7 +87,6 @@ if isinstance(df_main, pd.DataFrame):
         search_name = st.text_input("📝 品名關鍵字", placeholder="例如：洗髮精...")
         search_code = st.text_input("🔢 條碼/代號搜尋", placeholder="點擊自動跳出數字鍵盤...")
 
-        # 核心搜尋邏輯
         has_search = (search_name != "") or (search_code != "") or (selected_type != "全部")
 
         if has_search:
@@ -98,11 +109,12 @@ if isinstance(df_main, pd.DataFrame):
                     bc_val = row.get('條碼', '')
                     has_image = '圖片' in row and str(row['圖片']).startswith('http')
                     
-                    with st.container(border=True): # 增加框線感，適合手機閱讀
+                    with st.container(border=True):
                         c1, c2 = st.columns([1, 2])
                         with c1:
                             if bc_val:
-                                st.image(f"https://bwipjs-api.metafloor.com/?bcid=code128&text={bc_val}&scale=2&includetext", use_container_width=True)
+                                # 套用 img_size 參數
+                                st.image(f"https://bwipjs-api.metafloor.com/?bcid=code128&text={bc_val}&scale=2&includetext", width=img_size)
                             else:
                                 st.write("無條碼")
                         with c2:
@@ -110,7 +122,7 @@ if isinstance(df_main, pd.DataFrame):
                             st.write(f"代號: `{row.get('商品代號', '-')}`")
                             if has_image:
                                 with st.expander("查看商品圖"):
-                                    st.image(row['圖片'], use_container_width=True)
+                                    st.image(row['圖片'], width=img_size)
             else:
                 st.warning("查無資料")
         else:
@@ -119,13 +131,13 @@ if isinstance(df_main, pd.DataFrame):
 
     # --- Tab 2: 新增商品 ---
     with tab_add:
-        st.header("新增資料至試算表")
+        st.header("新增資料")
         type_options = unique_types + ["➕ 新增其他類別..."]
         chosen_type = st.selectbox("選擇類別", type_options, key="add_type")
         final_type = st.text_input("新類別名稱") if chosen_type == "➕ 新增其他類別..." else chosen_type
         
         new_name = st.text_input("商品品名 (必填)")
-        new_bc = st.text_input("商品條碼 (必填)", placeholder="請輸入條碼數字")
+        new_bc = st.text_input("商品條碼 (必填)")
         
         if st.button("🚀 確認送出資料", use_container_width=True):
             if final_type and new_name and new_bc:
@@ -133,23 +145,10 @@ if isinstance(df_main, pd.DataFrame):
                 try:
                     res = requests.post(SCRIPT_URL, data=json.dumps(payload))
                     if "Success" in res.text:
-                        st.success("✅ 寫入成功！請重新整理頁面。")
+                        st.success("✅ 寫入成功！")
                         st.cache_data.clear()
-                    else: 
-                        st.error(f"❌ 寫入失敗: {res.text}")
-                except: 
-                    st.error("❌ 無法連線至 Google Apps Script")
-            else: 
-                st.warning("請完整填寫類別、品名與條碼")
-
-    # --- Tab 3: 系統設定 (原側邊欄滑桿) ---
-    with tab_settings:
-        st.header("顯示設定")
-        st.write("調整畫面顯示效果")
-        # 這裡可以放原本 sidebar 的調整功能
-        if st.button("♻️ 強制重新整理資料"):
-            st.cache_data.clear()
-            st.rerun()
-
+                    else: st.error(f"❌ 寫入失敗: {res.text}")
+                except: st.error("❌ 連線錯誤")
+            else: st.warning("請填寫完整資訊")
 else:
-    st.error("資料載入失敗，請檢查來源網址。")
+    st.error("資料載入失敗")
