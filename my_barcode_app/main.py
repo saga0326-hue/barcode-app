@@ -4,7 +4,7 @@ import requests
 import json
 import streamlit.components.v1 as components
 
-# 1. 基本頁面設定
+# 1. 頁面基礎設定 (針對手機 APP 體驗優化)
 st.set_page_config(
     page_title="專業商品條碼系統", 
     layout="wide", 
@@ -12,22 +12,29 @@ st.set_page_config(
     initial_sidebar_state="collapsed" 
 )
 
-# --- 核心：強制手機跳出數字鍵盤的 JavaScript ---
-def force_numeric_keyboard():
+# --- 核心：精準控制鍵盤類型 (解決品名搜尋變數字的問題) ---
+def force_smart_keyboard():
     components.html(
         """
         <script>
-            var input = window.parent.document.querySelectorAll("input[type='text']");
-            for (var i = 0; i < input.length; i++) {
-                input[i].setAttribute("inputmode", "numeric");
-                input[i].setAttribute("pattern", "[0-9]*");
+            var inputs = window.parent.document.querySelectorAll("input[type='text']");
+            for (var i = 0; i < inputs.length; i++) {
+                var placeholder = inputs[i].getAttribute("placeholder") || "";
+                // 只有提示文字包含 '數字' 或 '條碼' 的欄位才切換為數字鍵盤
+                if (placeholder.includes("數字") || placeholder.includes("條碼")) {
+                    inputs[i].setAttribute("inputmode", "numeric");
+                    inputs[i].setAttribute("pattern", "[0-9]*");
+                } else {
+                    // 其他欄位（如品名）維持一般文字鍵盤
+                    inputs[i].setAttribute("inputmode", "text");
+                }
             }
         </script>
         """,
         height=0,
     )
 
-# 2. 數據讀取函式
+# 2. 數據讀取與快取邏輯
 @st.cache_data(ttl=60)
 def fetch_data(url):
     try:
@@ -42,7 +49,7 @@ def fetch_data(url):
     except Exception as e:
         return f"ERROR: {str(e)}"
 
-# 3. 取得設定資訊 (Secrets)
+# 3. 讀取 Secrets 設定
 try:
     DATA_URL = st.secrets["data_url"]
     CAT_URL = st.secrets["cat_url"]
@@ -51,39 +58,44 @@ except:
     st.error("❌ 請檢查 .streamlit/secrets.toml 設定")
     st.stop()
 
-# --- 主頁面開始 ---
+# --- 主程式開始 ---
 st.markdown("### 🛡️ 團隊共享條碼系統")
-force_numeric_keyboard()
+force_smart_keyboard() # 執行智慧鍵盤判斷
 
 df_main = fetch_data(DATA_URL)
 df_cat = fetch_data(CAT_URL)
 
 if isinstance(df_main, pd.DataFrame):
+    # 手機版分頁設計
     tab_search, tab_add, tab_settings = st.tabs(["🔍 快速搜尋", "➕ 新增品項", "⚙️ 設定"])
 
-    # --- Tab 3: 系統設定 ---
+    # --- Tab 3: 系統設定 (為了先取得 img_size 參數) ---
     with tab_settings:
         st.markdown("#### 🖼️ 顯示設定")
         img_size = st.slider("調整條碼/圖片大小", 50, 400, 150, 10)
         st.divider()
-        if st.button("♻️ 強制重新整理資料庫", use_container_width=True):
+        st.markdown("#### 🔄 數據維護")
+        if st.button("強制重新整理資料庫", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
 
     # --- Tab 1: 搜尋與顯示 ---
     with tab_search:
-        # 移除排序按鈕，類別選單獨佔一行或搭配標籤
+        # 類別選單 (佔用整行空間，方便手機點選)
         unique_types = sorted([str(t) for t in df_cat['類型'].unique() if t and t != 'nan'])
         selected_type = st.selectbox("📂 選擇類別", ["全部"] + unique_types)
 
-        search_name = st.text_input("📝 品名關鍵字", placeholder="品名搜尋...")
-        search_code = st.text_input("🔢 條碼/代號搜尋", placeholder="點擊輸入數字...")
+        # 搜尋欄位 (透過關鍵字觸發 force_smart_keyboard 邏輯)
+        search_name = st.text_input("📝 品名關鍵字", placeholder="輸入品名搜尋...") # 預設鍵盤
+        search_code = st.text_input("🔢 條碼/代號搜尋", placeholder="點擊輸入數字條碼...") # 數字鍵盤
 
+        # 搜尋判斷
         has_search = (search_name != "") or (search_code != "") or (selected_type != "全部")
 
         if has_search:
             work_df = df_main.copy() if selected_type == "全部" else df_cat[df_cat['類型'] == selected_type].copy()
 
+            # 關鍵字篩選
             if search_name:
                 work_df = work_df[work_df['品名'].str.contains(search_name, na=False, case=False)]
             if search_code:
@@ -92,7 +104,7 @@ if isinstance(df_main, pd.DataFrame):
                     mask |= work_df['商品代號'].str.contains(search_code, na=False)
                 work_df = work_df[mask]
 
-            # 固定為預設遞減 (ascending=False)
+            # 核心邏輯：預設品名遞減排序 (ascending=False)
             work_df = work_df.sort_values(by='品名', ascending=False).head(50)
 
             if not work_df.empty:
@@ -101,45 +113,45 @@ if isinstance(df_main, pd.DataFrame):
                     bc_val = row.get('條碼', '')
                     has_image = '圖片' in row and str(row['圖片']).startswith('http')
                     
-                    with st.container(border=True):
+                    with st.container(border=True): # 手機版卡片式排版
                         c1, c2 = st.columns([1.5, 3])
                         with c1:
                             if bc_val:
                                 st.image(f"https://bwipjs-api.metafloor.com/?bcid=code128&text={bc_val}&scale=2&includetext", width=img_size)
                             else:
-                                st.caption("無條碼")
+                                st.caption("無條碼資訊")
                         with c2:
-                            st.markdown(f"**{row['品名']}**")
-                            st.caption(f"代號: `{row.get('商品代號', '-')}`")
+                            st.markdown(f"**{row['品名']}**") # 縮小後的標題樣式
+                            st.caption(f"口座: `{row.get('口座', '-')}` | 代號: `{row.get('商品代號', '-')}`")
                             if has_image:
-                                with st.expander("📸 圖片"):
+                                with st.expander("📸 查看商品圖"):
                                     st.image(row['圖片'], width=img_size)
             else:
-                st.warning("查無資料")
+                st.warning("查無符合資料")
         else:
-            st.info("請輸入關鍵字開始搜尋")
+            st.info("👋 請輸入搜尋關鍵字或選擇類別")
             st.metric("資料庫總品項", len(df_main))
 
     # --- Tab 2: 新增商品 ---
     with tab_add:
-        st.markdown("#### ➕ 新增資料")
+        st.markdown("#### ➕ 新增商品資訊")
         type_options = unique_types + ["➕ 新增其他類別..."]
         chosen_type = st.selectbox("選擇類別", type_options, key="add_type")
         final_type = st.text_input("新類別名稱") if chosen_type == "➕ 新增其他類別..." else chosen_type
         
-        new_name = st.text_input("商品品名 (必填)")
-        new_bc = st.text_input("商品條碼 (必填)")
+        new_name = st.text_input("商品品名 (必填)", placeholder="請輸入完整名稱")
+        new_bc = st.text_input("商品條碼 (必填)", placeholder="輸入條碼數字") # 這邊也會觸發數字鍵盤
         
-        if st.button("🚀 確認送出資料", use_container_width=True):
+        if st.button("🚀 確認送出並寫入", use_container_width=True):
             if final_type and new_name and new_bc:
                 payload = {"type": final_type, "name": new_name, "barcode": new_bc}
                 try:
                     res = requests.post(SCRIPT_URL, data=json.dumps(payload))
                     if "Success" in res.text:
                         st.success("✅ 寫入成功！")
-                        st.cache_data.clear()
-                    else: st.error(f"❌ 寫入失敗: {res.text}")
-                except: st.error("❌ 連線錯誤")
-            else: st.warning("請填寫完整資訊")
+                        st.cache_data.clear() # 清除快取以讀取新資料
+                    else: st.error(f"❌ 失敗: {res.text}")
+                except: st.error("❌ 無法連線至自動化腳本")
+            else: st.warning("請填寫所有必要欄位")
 else:
-    st.error("資料載入失敗")
+    st.error("⚠️ 資料源連線失敗")
