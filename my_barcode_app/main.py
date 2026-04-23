@@ -6,7 +6,7 @@ import streamlit.components.v1 as components
 
 # 1. 基本頁面設定
 st.set_page_config(
-    page_title="條碼系統", 
+    page_title="專業商品條碼系統", 
     layout="wide", 
     page_icon="📦",
     initial_sidebar_state="collapsed" 
@@ -52,40 +52,38 @@ except:
     st.stop()
 
 # --- 主頁面開始 ---
-st.title("🛡️ 共享條碼")
+# 縮小標題：使用 markdown 語法 ### 代替 st.title 以節省空間
+st.markdown("### 🛡️ 團隊共享條碼系統")
 force_numeric_keyboard()
 
 df_main = fetch_data(DATA_URL)
 df_cat = fetch_data(CAT_URL)
 
 if isinstance(df_main, pd.DataFrame):
-    # 使用 Tabs 分隔功能
-    tab_search, tab_add, tab_settings = st.tabs(["🔍 快速搜尋", "➕ 新增品項", "⚙️ 系統設定"])
+    tab_search, tab_add, tab_settings = st.tabs(["🔍 快速搜尋", "➕ 新增品項", "⚙️ 設定"])
 
-    # --- Tab 3: 系統設定 (優先定義，以便搜尋分頁使用參數) ---
+    # --- Tab 3: 系統設定 (獲取參數) ---
     with tab_settings:
-        st.header("🖼️ 顯示設定")
-        # 在這裡新增調整條碼大小的滑桿
-        img_size = st.slider("調整條碼/圖片大小", min_value=50, max_value=400, value=150, step=10)
-        
+        st.markdown("#### 🖼️ 顯示設定") # 縮小標題
+        img_size = st.slider("調整條碼/圖片大小", 50, 400, 150, 10)
         st.divider()
-        st.header("數據維護")
         if st.button("♻️ 強制重新整理資料庫", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
 
     # --- Tab 1: 搜尋與顯示 ---
     with tab_search:
-        col_type, col_sort = st.columns([2, 1])
+        # 並列排版：將類別與排序放在同一列
+        col_type, col_sort = st.columns([3, 2])
         unique_types = sorted([str(t) for t in df_cat['類型'].unique() if t and t != 'nan'])
         
         with col_type:
-            selected_type = st.selectbox("📂 類別快選", ["全部"] + unique_types)
+            selected_type = st.selectbox("📂 類別", ["全部"] + unique_types, label_visibility="collapsed")
         with col_sort:
-            sort_order = st.radio("排序", ["遞增", "遞減"], horizontal=True)
+            sort_order = st.selectbox("🔃 排序", ["遞增", "遞減"], label_visibility="collapsed")
 
-        search_name = st.text_input("📝 品名關鍵字", placeholder="例如：洗髮精...")
-        search_code = st.text_input("🔢 條碼/代號搜尋", placeholder="點擊自動跳出數字鍵盤...")
+        search_name = st.text_input("📝 品名關鍵字", placeholder="品名搜尋...")
+        search_code = st.text_input("🔢 條碼/代號搜尋", placeholder="點擊輸入數字...")
 
         has_search = (search_name != "") or (search_code != "") or (selected_type != "全部")
 
@@ -110,28 +108,28 @@ if isinstance(df_main, pd.DataFrame):
                     has_image = '圖片' in row and str(row['圖片']).startswith('http')
                     
                     with st.container(border=True):
-                        c1, c2 = st.columns([1, 2])
+                        c1, c2 = st.columns([1.5, 3])
                         with c1:
                             if bc_val:
-                                # 套用 img_size 參數
                                 st.image(f"https://bwipjs-api.metafloor.com/?bcid=code128&text={bc_val}&scale=2&includetext", width=img_size)
                             else:
-                                st.write("無條碼")
+                                st.caption("無條碼")
                         with c2:
-                            st.subheader(row['品名'])
-                            st.write(f"代號: `{row.get('商品代號', '-')}`")
+                            # 顯示品名使用較小的標題
+                            st.markdown(f"**{row['品名']}**")
+                            st.caption(f"代號: `{row.get('商品代號', '-')}`")
                             if has_image:
-                                with st.expander("查看商品圖"):
+                                with st.expander("📸 圖片"):
                                     st.image(row['圖片'], width=img_size)
             else:
                 st.warning("查無資料")
         else:
-            st.info("請輸入關鍵字或選擇類別開始搜尋")
+            st.info("請輸入關鍵字開始搜尋")
             st.metric("資料庫總品項", len(df_main))
 
     # --- Tab 2: 新增商品 ---
     with tab_add:
-        st.header("新增資料")
+        st.markdown("#### ➕ 新增資料")
         type_options = unique_types + ["➕ 新增其他類別..."]
         chosen_type = st.selectbox("選擇類別", type_options, key="add_type")
         final_type = st.text_input("新類別名稱") if chosen_type == "➕ 新增其他類別..." else chosen_type
