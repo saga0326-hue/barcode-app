@@ -12,31 +12,28 @@ st.set_page_config(
     initial_sidebar_state="collapsed" 
 )
 
-# --- 核心：強制喚起九宮格數字鍵盤 (針對所有 number_input) ---
+# --- 核心：九宮格數字鍵盤腳本 (加強版) ---
 def force_numeric_pad():
-    # 使用 components.html 注入 JS，強制將 inputmode 設為 numeric
     components.html(
         """
         <script>
-            const fixNumericInputs = () => {
-                // 搜尋所有類型為 number 的輸入框
+            const fixInputs = () => {
                 const inputs = window.parent.document.querySelectorAll("input[type='number']");
                 inputs.forEach(input => {
                     input.setAttribute("inputmode", "numeric");
                     input.setAttribute("pattern", "[0-9]*");
                 });
             };
-            // 初次執行
-            fixNumericInputs();
-            // 監聽 DOM 變動，確保切換 Tab 時也能生效
-            const observer = new MutationObserver(fixNumericInputs);
+            // 監控頁面變動，防止切換 Tab 後失效
+            const observer = new MutationObserver(fixInputs);
             observer.observe(window.parent.document.body, { childList: true, subtree: true });
+            fixInputs();
         </script>
         """,
         height=0,
     )
 
-# 2. 數據讀取與快取 (30秒)
+# 2. 數據讀取邏輯 (30秒快取)
 @st.cache_data(ttl=30)
 def fetch_data(url):
     try:
@@ -60,27 +57,35 @@ except:
     st.error("❌ 請檢查 Secrets 設定")
     st.stop()
 
-# --- 主程式執行區 ---
-# 重要：腳本必須在主介面渲染時呼叫
+# --- 主程式執行 ---
 force_numeric_pad()
-
 st.markdown("### 🛡️ 團隊共享條碼系統")
 
 df_main = fetch_data(DATA_URL)
 df_cat = fetch_data(CAT_URL)
 
 if isinstance(df_main, pd.DataFrame):
-    # 分頁設定
+    # 四大功能分頁
     tab_search, tab_add, tab_settings, tab_feedback = st.tabs(["🔍 快速搜尋", "➕ 新增品項", "⚙️ 設定", "💬 意見反映"])
+
+    # --- Tab 3: 設定 (優先定義，讓排序參數生效) ---
+    with tab_settings:
+        st.markdown("#### 🔃 排序設定")
+        # 修正：預設改為 遞增 (A-Z)，index=0
+        sort_choice = st.radio("搜尋結果排序方式 (依品名)", ["遞增 (A-Z)", "遞減 (Z-A)"], index=0)
+        is_ascending = True if sort_choice == "遞增 (A-Z)" else False
+        
+        st.divider()
+        if st.button("🔄 手動刷新資料庫", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
 
     # --- Tab 1: 快速搜尋 ---
     with tab_search:
         unique_types = sorted([str(t) for t in df_cat['類型'].unique() if t and t != 'nan'])
         selected_type = st.selectbox("📂 選擇類別", ["全部"] + unique_types)
-        search_name = st.text_input("📝 品名關鍵字", placeholder="輸入名稱...")
-        
-        # 條碼搜尋框 (number_input)
-        search_code_num = st.number_input("🔢 條碼搜尋 (九宮格)", step=1, value=None, key="search_code")
+        search_name = st.text_input("📝 品名關鍵字", placeholder="搜尋品名...")
+        search_code_num = st.number_input("🔢 條碼搜尋", step=1, value=None, key="search_bar")
         search_code = str(search_code_num) if search_code_num is not None else ""
 
         if (search_name != "") or (search_code != "") or (selected_type != "全部"):
@@ -90,8 +95,10 @@ if isinstance(df_main, pd.DataFrame):
             if search_code: 
                 work_df = work_df[work_df['條碼'].str.contains(search_code, na=False)]
             
-            work_df = work_df.sort_values(by='品名', ascending=True).head(50)
+            # 使用 Tab 3 的排序參數
+            work_df = work_df.sort_values(by='品名', ascending=is_ascending).head(50)
 
+            st.caption(f"排序：{sort_choice}")
             for _, row in work_df.iterrows():
                 bc_val = row.get('條碼', '')
                 with st.container(border=True):
@@ -103,16 +110,16 @@ if isinstance(df_main, pd.DataFrame):
                     with c2:
                         st.markdown(f"**{row['品名']}**")
                         st.caption(f"代號: `{row.get('商品代號', '-')}`")
+        else:
+            st.info("👋 請輸入關鍵字開始搜尋")
 
     # --- Tab 2: 新增品項 ---
     with tab_add:
         st.markdown("#### ➕ 新增商品資訊")
-        chosen_type = st.selectbox("選擇類別", unique_types + ["➕ 新增類別..."], key="add_sel")
+        chosen_type = st.selectbox("選擇類別", unique_types + ["➕ 新增類別..."], key="add_type_sel")
         final_type = st.text_input("新類別名稱") if chosen_type == "➕ 新增類別..." else chosen_type
         new_name = st.text_input("商品品名 (必填)")
-        
-        # 新增條碼框 (number_input)
-        new_bc_num = st.number_input("商品條碼 (必填)", step=1, value=None, key="add_bc")
+        new_bc_num = st.number_input("商品條碼 (必填)", step=1, value=None, key="add_barcode_num")
         new_bc = str(new_bc_num) if new_bc_num is not None else ""
         
         status_add = st.empty()
@@ -126,13 +133,7 @@ if isinstance(df_main, pd.DataFrame):
                     st.success("✅ 已存入 categories 分頁")
                     st.cache_data.clear()
                 else: st.error(f"錯誤: {res.text}")
-            else: st.warning("請完整填寫品名與條碼")
-
-    # --- Tab 3: 設定 ---
-    with tab_settings:
-        if st.button("🔄 手動刷新資料庫", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
+            else: st.warning("請填寫完整資訊")
 
     # --- Tab 4: 意見反映 ---
     with tab_feedback:
