@@ -66,52 +66,53 @@ df_cat = fetch_data(CAT_URL)
 if isinstance(df_main, pd.DataFrame):
     tab_search, tab_add, tab_settings, tab_feedback = st.tabs(["🔍搜尋", "➕新增", "⚙️設定", "💬反映"])
 
-    # --- Tab 3: 設定 ---
-    with tab_settings:
-        st.markdown("#### 🔃 排序設定")
-        sort_choice = st.radio("搜尋排序", ["遞增 (A-Z)", "遞減 (Z-A)"], index=0)
-        is_ascending = True if sort_choice == "遞增 (A-Z)" else False
-        
-        st.divider()
-        if st.button("🔄 刷新資料庫", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
-
-    # --- Tab 1: 快速搜尋 ---
+    # --- Tab 1: 快速搜尋 (類別與口座皆改為按鈕) ---
     with tab_search:
-        # 類別選單
+        # 1. 類別迷你按鈕 (若類別太多會自動換行)
         unique_types = sorted([str(t) for t in df_cat['類型'].unique() if t and t != 'nan'])
-        selected_type = st.selectbox("📂 類別", ["全部"] + unique_types)
-
-        # 這裡就是你想要的「迷你按鈕」 (Segmented Control)
-        # 它在手機上會並排顯示，非常節省空間
-        selected_koz = st.segmented_control(
-            "🏦 快速篩選口座",
-            options=["全部", "04", "05", "07"],
-            default="全部",
-            selection_mode="single"
+        st.write("📂 **類別篩選**")
+        selected_type = st.segmented_control(
+            "類別", 
+            options=["全部"] + unique_types, 
+            default="全部", 
+            label_visibility="collapsed"
         )
 
+        # 2. 口座迷你按鈕
+        st.write("🏦 **口座篩選**")
+        selected_koz = st.segmented_control(
+            "口座",
+            options=["全部", "04", "05", "07"],
+            default="全部",
+            label_visibility="collapsed"
+        )
+
+        st.divider()
+
+        # 3. 品名與條碼搜尋
         search_name = st.text_input("📝 品名關鍵字", placeholder="輸入關鍵字...")
         search_code_num = st.number_input("🔢 條碼搜尋", step=1, value=None, key="main_search_bc")
         search_code = str(search_code_num) if search_code_num is not None else ""
 
         # --- 綜合篩選邏輯 ---
-        has_search = (search_name != "") or (search_code != "") or (selected_type != "全部") or (selected_koz != "全部")
+        is_type_all = (selected_type == "全部")
+        is_koz_all = (selected_koz == "全部")
+        has_search = (search_name != "") or (search_code != "") or (not is_type_all) or (not is_koz_all)
 
         if has_search:
-            work_df = df_main.copy() if selected_type == "全部" else df_cat[df_cat['類型'] == selected_type].copy()
+            # 讀取排序設定 (從 Tab 3 取得)
+            is_asc = st.session_state.get('is_ascending', True)
             
-            # 套用迷你按鈕的口座篩選
-            if selected_koz != "全部":
+            work_df = df_main.copy() if is_type_all else df_cat[df_cat['類型'] == selected_type].copy()
+            
+            if not is_koz_all:
                 work_df = work_df[work_df['口座'] == selected_koz]
-            
             if search_name:
                 work_df = work_df[work_df['品名'].str.contains(search_name, na=False, case=False)]
             if search_code:
                 work_df = work_df[work_df['條碼'].str.contains(search_code, na=False)]
             
-            work_df = work_df.sort_values(by='品名', ascending=is_ascending).head(50)
+            work_df = work_df.sort_values(by='品名', ascending=is_asc).head(50)
 
             if not work_df.empty:
                 st.caption(f"找到 {len(work_df)} 筆結果")
@@ -127,31 +128,39 @@ if isinstance(df_main, pd.DataFrame):
                             st.markdown(f"**{row['品名']}**")
                             st.caption(f"口座: `{row.get('口座', '-')}` | 代號: `{row.get('商品代號', '-')}`")
             else:
-                st.warning("查無資料")
+                st.warning("查無符合資料")
+        else:
+            st.info("👋 請點選上方按鈕或輸入關鍵字搜尋")
 
-    # --- Tab 2: 新增品項 ---
+    # --- Tab 2: 新增品項 (也使用迷你按鈕) ---
     with tab_add:
         st.markdown("#### ➕ 新增商品")
-        # 新增時也用迷你按鈕選口座，超方便！
-        new_koz = st.segmented_control("選擇口座", ["04", "05", "07"], default="04")
+        st.write("選擇口座")
+        new_koz = st.segmented_control("koz_add", ["04", "05", "07"], default="04", label_visibility="collapsed")
         
-        chosen_type = st.selectbox("選擇類別", unique_types + ["➕ 新增類別..."])
-        final_type = st.text_input("新類別名稱") if chosen_type == "➕ 新增類別..." else chosen_type
+        st.write("選擇類別")
+        chosen_type = st.segmented_control("type_add", unique_types + ["➕新增"], default=unique_types[0] if unique_types else "➕新增", label_visibility="collapsed")
+        
+        final_type = st.text_input("輸入新類別名稱") if chosen_type == "➕新增" else chosen_type
         new_name = st.text_input("商品品名")
         new_bc_num = st.number_input("商品條碼", step=1, value=None, key="add_bc_num")
         
         if st.button("🚀 確認送出", use_container_width=True):
             if final_type and new_name and new_bc_num:
-                payload = {
-                    "method": "add_barcode", 
-                    "type": final_type, 
-                    "name": new_name, 
-                    "barcode": str(new_bc_num),
-                    "koz": new_koz
-                }
+                payload = {"method": "add_barcode", "type": final_type, "name": new_name, "barcode": str(new_bc_num), "koz": new_koz}
                 requests.post(SCRIPT_URL, data=json.dumps(payload))
-                st.success(f"已成功加入 {new_koz} 口座！")
+                st.success(f"已成功加入 {final_type}！")
                 st.cache_data.clear()
+
+    # --- Tab 3: 設定 ---
+    with tab_settings:
+        st.markdown("#### 🔃 排序設定")
+        sort_choice = st.radio("排序方式", ["遞增 (A-Z)", "遞減 (Z-A)"], index=0)
+        st.session_state['is_ascending'] = True if sort_choice == "遞增 (A-Z)" else False
+        
+        if st.button("🔄 刷新資料庫", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
 
     # --- Tab 4: 意見反映 ---
     with tab_feedback:
@@ -160,6 +169,6 @@ if isinstance(df_main, pd.DataFrame):
         if st.button("🚀 提交", use_container_width=True):
             if fb_content:
                 payload = {"method": "feedback", "type": "意見", "user": "匿名", "content": fb_content}
-                requests.post(SCRIPT_URL, data=json.dumps(payload))
-                st.success("感謝回饋")
+                requests.post(SCRIPT_URL, data=json.dumps(fb_payload))
+                st.success("成功！")
                 st.balloons()
