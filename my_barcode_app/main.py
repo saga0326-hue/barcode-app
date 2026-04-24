@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed" 
 )
 
-# --- 核心：強制九宮格鍵盤腳本 ---
+# --- 核心：九宮格數字鍵盤腳本 ---
 def force_numeric_pad():
     components.html(
         """
@@ -32,7 +32,7 @@ def force_numeric_pad():
         height=0,
     )
 
-# 2. 數據讀取
+# 2. 數據讀取邏輯 (30秒快取)
 @st.cache_data(ttl=30)
 def fetch_data(url):
     try:
@@ -56,7 +56,7 @@ except:
     st.error("❌ 請檢查 Secrets 設定")
     st.stop()
 
-# --- 主程式 ---
+# --- 主程式執行 ---
 st.markdown("### 🛡️ 團隊共享條碼系統")
 force_numeric_pad()
 
@@ -64,81 +64,99 @@ df_main = fetch_data(DATA_URL)
 df_cat = fetch_data(CAT_URL)
 
 if isinstance(df_main, pd.DataFrame):
-    # 修改點：在 Tabs 中新增 "💬 意見反映"
+    # 四大功能分頁
     tab_search, tab_add, tab_settings, tab_feedback = st.tabs(["🔍 快速搜尋", "➕ 新增品項", "⚙️ 設定", "💬 意見反映"])
 
-    # --- Tab 1: 搜尋 (略，保持原樣) ---
+    # --- Tab 1: 快速搜尋 ---
     with tab_search:
         unique_types = sorted([str(t) for t in df_cat['類型'].unique() if t and t != 'nan'])
         selected_type = st.selectbox("📂 選擇類別", ["全部"] + unique_types)
-        search_name = st.text_input("📝 品名關鍵字")
-        search_code_num = st.number_input("🔢 條碼搜尋", step=1, value=None)
+        search_name = st.text_input("📝 品名關鍵字", placeholder="搜尋品名...")
+        search_code_num = st.number_input("🔢 條碼搜尋", step=1, value=None, placeholder="點擊輸入數字...")
         search_code = str(search_code_num) if search_code_num is not None else ""
-        
-        # 搜尋邏輯與排序顯示... (保持原樣)
-        sort_choice = "遞增 (A-Z)" # 預設預留
+
+        # 排序預設為遞增 (A-Z)
         is_ascending = True
 
         if (search_name != "") or (search_code != "") or (selected_type != "全部"):
             work_df = df_main.copy() if selected_type == "全部" else df_cat[df_cat['類型'] == selected_type].copy()
-            if search_name: work_df = work_df[work_df['品名'].str.contains(search_name, na=False, case=False)]
-            if search_code: work_df = work_df[work_df['條碼'].str.contains(search_code, na=False)]
+            if search_name: 
+                work_df = work_df[work_df['品名'].str.contains(search_name, na=False, case=False)]
+            if search_code: 
+                work_df = work_df[work_df['條碼'].str.contains(search_code, na=False)]
+            
             work_df = work_df.sort_values(by='品名', ascending=is_ascending).head(50)
+
             for _, row in work_df.iterrows():
+                bc_val = row.get('條碼', '')
                 with st.container(border=True):
-                    st.write(f"**{row['品名']}** ({row.get('條碼','')})")
+                    c1, c2 = st.columns([1.5, 3])
+                    with c1:
+                        if bc_val:
+                            st.image(f"https://bwipjs-api.metafloor.com/?bcid=code128&text={bc_val}&scale=2&includetext")
+                        else:
+                            st.caption("無條碼")
+                    with c2:
+                        st.markdown(f"**{row['品名']}**")
+                        st.caption(f"代號: `{row.get('商品代號', '-')}`")
+        else:
+            st.info("請輸入關鍵字開始搜尋")
 
-    # --- Tab 2: 新增品項 (保持原樣) ---
+    # --- Tab 2: 新增品項 ---
     with tab_add:
-        st.subheader("➕ 新增商品")
-        new_name = st.text_input("商品品名")
-        new_bc_num = st.number_input("商品條碼", step=1, value=None)
-        if st.button("確認送出條碼"):
-            if new_name and new_bc_num:
-                payload = {"method": "add_barcode", "type": "預設", "name": new_name, "barcode": str(new_bc_num)}
-                res = requests.post(SCRIPT_URL, data=json.dumps(payload))
-                st.success("寫入成功")
-                st.cache_data.clear()
+        st.markdown("#### ➕ 新增商品至 categories")
+        chosen_type = st.selectbox("選擇類別", unique_types + ["➕ 新增類別..."], key="add_t")
+        final_type = st.text_input("新類別名稱") if chosen_type == "➕ 新增類別..." else chosen_type
+        new_name = st.text_input("商品品名 (必填)")
+        new_bc_num = st.number_input("商品條碼 (必填)", step=1, value=None)
+        
+        status_add = st.empty()
+        if st.button("🚀 確認送出商品"):
+            if final_type and new_name and new_bc_num:
+                status_add.info("⏳ 處理中...")
+                payload = {
+                    "method": "add_barcode", 
+                    "type": final_type, 
+                    "name": new_name, 
+                    "barcode": str(new_bc_num)
+                }
+                res = requests.post(SCRIPT_URL, data=json.dumps(payload), timeout=15)
+                status_add.empty()
+                if "Success" in res.text:
+                    st.success("✅ 商品已存入 categories")
+                    st.cache_data.clear()
+                else: st.error(f"失敗: {res.text}")
+            else: st.warning("請填寫完整資訊")
 
-    # --- Tab 3: 設定 (略) ---
+    # --- Tab 3: 設定 ---
     with tab_settings:
-        st.write("設定頁面")
+        if st.button("🔄 手動重新整理資料庫"):
+            st.cache_data.clear()
+            st.rerun()
 
-    # --- Tab 4: 意見反映 (新功能) ---
+    # --- Tab 4: 意見反映 ---
     with tab_feedback:
-        st.markdown("#### 💬 意見反映與錯誤回報")
-        st.caption("您的建議是我們進步的動力，請填寫下方資訊：")
-        
+        st.markdown("#### 💬 意見反映")
         fb_type = st.selectbox("反映類型", ["功能建議", "錯誤回報", "資料修正", "其他"])
-        fb_user = st.text_input("您的稱呼 (選填)", placeholder="例如：小明")
-        fb_content = st.text_area("反映內容 (必填)", placeholder="請詳細描述您的問題或建議...")
+        fb_user = st.text_input("您的稱稱 (選填)", placeholder="匿名")
+        fb_content = st.text_area("反映內容 (必填)")
         
-        fb_status = st.empty()
-        
-        if st.button("🚀 提交意見", use_container_width=True):
+        status_fb = st.empty()
+        if st.button("🚀 提交意見"):
             if fb_content:
-                fb_status.info("⏳ 提交中...")
-                # 傳送 method="feedback" 讓 GAS 辨別要寫入哪個 Sheet
+                status_fb.info("⏳ 提交中...")
                 fb_payload = {
-                    "method": "feedback",
-                    "type": fb_type,
-                    "user": fb_user if fb_user else "匿名",
+                    "method": "feedback", 
+                    "type": fb_type, 
+                    "user": fb_user if fb_user else "匿名", 
                     "content": fb_content
                 }
-                try:
-                    res = requests.post(SCRIPT_URL, data=json.dumps(fb_payload), timeout=15)
-                    fb_status.empty()
-                    if "Success" in res.text:
-                        st.success("✅ 我們已收到您的寶貴意見，謝謝！")
-                        # 提交後清空內容的簡單做法是 rerun
-                        st.balloons()
-                    else:
-                        st.error(f"❌ 提交失敗：{res.text}")
-                except Exception as e:
-                    fb_status.empty()
-                    st.error(f"❌ 連線失敗：{str(e)}")
-            else:
-                st.warning("⚠️ 請填寫反映內容後再提交")
-
+                res = requests.post(SCRIPT_URL, data=json.dumps(fb_payload), timeout=15)
+                status_fb.empty()
+                if "Success" in res.text:
+                    st.success("✅ 意見已存入 feedback 分頁")
+                    st.balloons()
+                else: st.error(f"提交失敗: {res.text}")
+            else: st.warning("內容不能為空")
 else:
     st.error("⚠️ 資料源連線失敗")
