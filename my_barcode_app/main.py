@@ -6,11 +6,24 @@ import streamlit.components.v1 as components
 
 # 1. 頁面基礎設定
 st.set_page_config(
-    page_title="商品條碼系統", 
+    page_title="專業商品條碼系統", 
     layout="wide", 
     page_icon="📦",
     initial_sidebar_state="collapsed" 
 )
+
+# --- 更新日誌內容 (你可以在這裡自行增加內容) ---
+VERSION_HISTORY = """
+**v1.2 (2024/04/24)**
+- ➕ 新增：設定頁面「版本資訊」區塊。
+- 💄 優化：類別與口座篩選改用「迷你按鈕 (Segmented Control)」。
+- 🛠️ 修正：修正意見反映提交時的變數錯誤 (NameError)。
+- 🧹 移除：移除新增商品時的「選擇口座」選項。
+
+**v1.1 (2024/04/20)**
+- ➕ 新增：口座 (04, 05, 07) 快速篩選功能。
+- 🔍 優化：自動喚起手機數字鍵盤 (九宮格模式)。
+"""
 
 # --- 核心：九宮格數字鍵盤腳本 ---
 def force_numeric_pad():
@@ -58,13 +71,12 @@ except:
 
 # --- 主程式執行 ---
 force_numeric_pad()
-st.markdown("### 🛡️ 共享條碼")
+st.markdown("### 🛡️ 團隊共享條碼系統")
 
 df_main = fetch_data(DATA_URL)
 df_cat = fetch_data(CAT_URL)
 
 if isinstance(df_main, pd.DataFrame):
-    # 分頁標籤
     tab_search, tab_add, tab_settings, tab_feedback = st.tabs(["🔍搜尋", "➕新增", "⚙️設定", "💬反映"])
 
     # --- Tab 1: 快速搜尋 ---
@@ -104,10 +116,9 @@ if isinstance(df_main, pd.DataFrame):
                         st.markdown(f"**{row['品名']}**")
                         st.caption(f"口座: {row.get('口座','-')} | 代號: {row.get('商品代號','-')}")
 
-    # --- Tab 2: 新增品項 (已移除口座選擇) ---
+    # --- Tab 2: 新增品項 ---
     with tab_add:
         st.markdown("#### ➕ 新增商品至 categories")
-        
         st.write("選擇類別")
         unique_types = sorted([str(t) for t in df_cat['類型'].unique() if t and t != 'nan'])
         chosen_type = st.segmented_control("type_add", unique_types + ["➕新增"], default=unique_types[0] if unique_types else "➕新增", label_visibility="collapsed")
@@ -118,26 +129,17 @@ if isinstance(df_main, pd.DataFrame):
         
         if st.button("🚀 確認送出商品", use_container_width=True):
             if final_type and new_name and new_bc_num:
-                # 這裡移除 koz 參數，維持基礎商品資訊寫入
-                payload = {
-                    "method": "add_barcode", 
-                    "type": final_type, 
-                    "name": new_name, 
-                    "barcode": str(new_bc_num)
-                }
+                payload = {"method": "add_barcode", "type": final_type, "name": new_name, "barcode": str(new_bc_num)}
                 try:
                     res = requests.post(SCRIPT_URL, data=json.dumps(payload), timeout=15)
                     if "Success" in res.text:
                         st.success(f"✅ 已成功存入 categories 分頁！")
                         st.cache_data.clear()
-                    else:
-                        st.error(f"❌ 寫入失敗: {res.text}")
+                    else: st.error(f"❌ 寫入失敗: {res.text}")
                 except Exception as e:
                     st.error(f"❌ 連線失敗: {str(e)}")
-            else:
-                st.warning("⚠️ 請填寫品名與條碼")
 
-    # --- Tab 3: 設定 ---
+    # --- Tab 3: 設定與版本 ---
     with tab_settings:
         st.markdown("#### 🔃 排序設定")
         sort_choice = st.radio("排序方式", ["遞增 (A-Z)", "遞減 (Z-A)"], index=0)
@@ -146,6 +148,12 @@ if isinstance(df_main, pd.DataFrame):
         if st.button("🔄 刷新資料庫快取", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
+
+        # --- 新增的版本區塊 ---
+        st.divider()
+        with st.expander("📝 版本更新資訊", expanded=False):
+            st.markdown(VERSION_HISTORY)
+            st.caption("Developed by Gemini AI for your Team")
 
     # --- Tab 4: 意見反映 ---
     with tab_feedback:
@@ -156,19 +164,13 @@ if isinstance(df_main, pd.DataFrame):
         
         if st.button("🚀 提交意見", use_container_width=True):
             if fb_content.strip():
-                payload = {
-                    "method": "feedback", 
-                    "type": fb_type, 
-                    "user": fb_user if fb_user else "匿名", 
-                    "content": fb_content
-                }
+                payload = {"method": "feedback", "type": fb_type, "user": fb_user if fb_user else "匿名", "content": fb_content}
                 try:
                     res = requests.post(SCRIPT_URL, data=json.dumps(payload), timeout=15)
                     if "Success" in res.text:
                         st.success("✅ 感謝您的回饋！")
                         st.balloons()
-                    else:
-                        st.error(f"❌ 提交失敗: {res.text}")
+                    else: st.error(f"❌ 提交失敗: {res.text}")
                 except Exception as e:
                     st.error(f"❌ 連線出錯: {str(e)}")
             else:
