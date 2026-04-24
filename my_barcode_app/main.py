@@ -141,14 +141,18 @@ if isinstance(df_main, pd.DataFrame):
         final_type = st.text_input("新類別名稱") if chosen_type == "➕ 新增其他類別..." else chosen_type
         
         new_name = st.text_input("商品品名 (必填)", placeholder="請輸入完整名稱")
-        # (需求 4：占位符包含「數字條碼」確保手機彈出數字鍵盤)
-        new_bc = st.text_input("商品條碼 (必填)", placeholder="輸入數字條碼")
-        
-        # (需求 2：準備一個 empty 容器用來顯示「處理中...」)
-        status_container = st.empty()
-        
-        if st.button("🚀 確認送出並寫入", use_container_width=True):
-            if final_type and new_name and new_bc:
+ # (需求 4：占位符包含「數字條碼」確保手機彈出數字鍵盤)
+    # 修正點：改用 number_input 確保手機彈出數字鍵盤
+    # step=1 確保不出現小數點，value=None 讓預設為空
+    new_bc_num = st.number_input("商品條碼 (必填)", step=1, value=None, placeholder="點擊輸入數字條碼")
+    
+    # 將數字轉回字串，方便後續寫入
+    new_bc = str(new_bc_num) if new_bc_num is not None else ""
+    
+    status_container = st.empty()
+    
+    if st.button("🚀 確認送出並寫入", use_container_width=True):
+        if final_type and new_name and new_bc:
                 status_container.info("⏳ 處理中，請稍候...") # 顯示處理中
                 
                 payload = {"type": final_type, "name": new_name, "barcode": new_bc}
