@@ -6,13 +6,13 @@ import streamlit.components.v1 as components
 
 # 1. 頁面基礎設定
 st.set_page_config(
-    page_title="專業商品條碼系統", 
+    page_title="商品條碼系統", 
     layout="wide", 
     page_icon="📦",
     initial_sidebar_state="collapsed" 
 )
 
-# --- 核心：九宮格數字鍵盤腳本 (針對 iPhone 優化) ---
+# --- 核心：九宮格數字鍵盤腳本 ---
 def force_numeric_pad():
     components.html(
         """
@@ -32,7 +32,7 @@ def force_numeric_pad():
         height=0,
     )
 
-# 2. 數據讀取邏輯 (30秒快取)
+# 2. 數據讀取邏輯
 @st.cache_data(ttl=30)
 def fetch_data(url):
     try:
@@ -58,18 +58,17 @@ except:
 
 # --- 主程式執行 ---
 force_numeric_pad()
-st.markdown("### 🛡️ 團隊共享條碼系統")
+st.markdown("### 🛡️ 共享條碼")
 
 df_main = fetch_data(DATA_URL)
 df_cat = fetch_data(CAT_URL)
 
 if isinstance(df_main, pd.DataFrame):
-    # 使用極短標籤防止手機端換行
+    # 分頁標籤
     tab_search, tab_add, tab_settings, tab_feedback = st.tabs(["🔍搜尋", "➕新增", "⚙️設定", "💬反映"])
 
     # --- Tab 1: 快速搜尋 ---
     with tab_search:
-        # 使用迷你按鈕 (Segmented Control)
         unique_types = sorted([str(t) for t in df_cat['類型'].unique() if t and t != 'nan'])
         st.write("📂 **類別**")
         selected_type = st.segmented_control("type_sel", options=["全部"] + unique_types, default="全部", label_visibility="collapsed")
@@ -82,7 +81,6 @@ if isinstance(df_main, pd.DataFrame):
         search_code_num = st.number_input("🔢 條碼搜尋", step=1, value=None, key="search_bc_input")
         search_code = str(search_code_num) if search_code_num is not None else ""
 
-        # 讀取排序
         is_asc = st.session_state.get('is_ascending', True)
         has_search = (search_name != "") or (search_code != "") or (selected_type != "全部") or (selected_koz != "全部")
 
@@ -105,15 +103,13 @@ if isinstance(df_main, pd.DataFrame):
                     with c2:
                         st.markdown(f"**{row['品名']}**")
                         st.caption(f"口座: {row.get('口座','-')} | 代號: {row.get('商品代號','-')}")
-        else:
-            st.info("👋 請點選上方按鈕或輸入關鍵字搜尋")
 
-    # --- Tab 2: 新增品項 ---
+    # --- Tab 2: 新增品項 (已移除口座選擇) ---
     with tab_add:
         st.markdown("#### ➕ 新增商品至 categories")
-        st.write("選擇口座")
-        new_koz = st.segmented_control("koz_add", ["04", "05", "07"], default="04", label_visibility="collapsed")
+        
         st.write("選擇類別")
+        unique_types = sorted([str(t) for t in df_cat['類型'].unique() if t and t != 'nan'])
         chosen_type = st.segmented_control("type_add", unique_types + ["➕新增"], default=unique_types[0] if unique_types else "➕新增", label_visibility="collapsed")
         
         final_type = st.text_input("新類別名稱") if chosen_type == "➕新增" else chosen_type
@@ -122,18 +118,24 @@ if isinstance(df_main, pd.DataFrame):
         
         if st.button("🚀 確認送出商品", use_container_width=True):
             if final_type and new_name and new_bc_num:
+                # 這裡移除 koz 參數，維持基礎商品資訊寫入
                 payload = {
                     "method": "add_barcode", 
                     "type": final_type, 
                     "name": new_name, 
-                    "barcode": str(new_bc_num),
-                    "koz": new_koz
+                    "barcode": str(new_bc_num)
                 }
-                res = requests.post(SCRIPT_URL, data=json.dumps(payload))
-                if "Success" in res.text:
-                    st.success("✅ 已存入 categories")
-                    st.cache_data.clear()
-                else: st.error(f"失敗: {res.text}")
+                try:
+                    res = requests.post(SCRIPT_URL, data=json.dumps(payload), timeout=15)
+                    if "Success" in res.text:
+                        st.success(f"✅ 已成功存入 categories 分頁！")
+                        st.cache_data.clear()
+                    else:
+                        st.error(f"❌ 寫入失敗: {res.text}")
+                except Exception as e:
+                    st.error(f"❌ 連線失敗: {str(e)}")
+            else:
+                st.warning("⚠️ 請填寫品名與條碼")
 
     # --- Tab 3: 設定 ---
     with tab_settings:
@@ -145,7 +147,7 @@ if isinstance(df_main, pd.DataFrame):
             st.cache_data.clear()
             st.rerun()
 
-    # --- Tab 4: 意見反映 (已修復 fb_payload 錯誤) ---
+    # --- Tab 4: 意見反映 ---
     with tab_feedback:
         st.markdown("#### 💬 意見反映")
         fb_type = st.selectbox("類型", ["功能建議", "錯誤回報", "資料修正", "其他"])
@@ -154,7 +156,6 @@ if isinstance(df_main, pd.DataFrame):
         
         if st.button("🚀 提交意見", use_container_width=True):
             if fb_content.strip():
-                # 統一使用 payload，避免 NameError
                 payload = {
                     "method": "feedback", 
                     "type": fb_type, 
