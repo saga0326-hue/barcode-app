@@ -9,6 +9,11 @@ st.set_page_config(page_title="專業商品條碼系統", layout="wide", page_ic
 
 # --- 更新日誌 ---
 VERSION_HISTORY = """
+**(2024/04/27)**
+- 🔍 **修正**：將條碼搜尋由數字欄位改為文字欄位，支援「0」開頭的條碼搜尋。
+- 🧹 **修復**：修正「清除」按鈕功能，點擊後可正確重置品名與條碼輸入框。
+- 📱 **優化**：優化手機端輸入體驗，確保文字欄位能觸發正確的數字鍵盤配置。
+
 **(2024/04/24)**
 - 🛡️ **安全**：新增「防重複送出」機制，送出後自動禁用按鈕，防止連點。
 - 🛠️ **修復**：精確校準 `categories` 與 `feedback` 試算表欄位順序，解決寫入位移問題。
@@ -22,23 +27,21 @@ VERSION_HISTORY = """
 - 🔍 優化：針對手機端自動喚起九宮格數字鍵盤。
 """
 
-# --- 初始化 Session State (防連點鎖) ---
+# --- 初始化 Session State ---
 if 'submitting_item' not in st.session_state:
     st.session_state.submitting_item = False
 if 'submitting_fb' not in st.session_state:
     st.session_state.submitting_fb = False
-# 初始化搜尋關鍵字
 if 'search_query' not in st.session_state:
     st.session_state.search_query = ""
 
-# 2. 核心腳本
+# 2. 核心腳本 (強制手機數字鍵盤)
 def force_numeric_pad():
     components.html("""<script>
         const fixInputs = () => {
-            // 針對 type="number" 或特定 placeholder 的 input 強化
             const inputs = window.parent.document.querySelectorAll("input");
             inputs.forEach(input => {
-                if (input.type === 'number' || input.placeholder.includes('條碼')) {
+                if (input.type === 'number' || input.placeholder.includes('條碼') || input.placeholder.includes('支援 0')) {
                     input.setAttribute("inputmode", "numeric");
                     input.setAttribute("pattern", "[0-9]*");
                 }
@@ -88,17 +91,21 @@ if isinstance(df_main, pd.DataFrame):
         selected_koz = st.segmented_control("ksel", options=["全部", "04", "05", "07"], default="全部", label_visibility="collapsed")
         
         st.divider()
-        s_name = st.text_input("📝 品名關鍵字", placeholder="關鍵字...")
         
-        # 整合 條碼與代號搜尋 並加入清除按鈕
+        # 修正 3: 加上 key 以便清除
+        s_name = st.text_input("📝 品名關鍵字", placeholder="關鍵字...", key="input_name")
+        
         c_search, c_clear = st.columns([4, 1])
         with c_search:
-            # 使用 number_input 確保手機喚起數字鍵盤
-            s_code_val = st.number_input("🔢 條碼 或 商品代號 搜尋", step=1, value=None, key="sc_num")
-            s_code = str(s_code_val) if s_code_val is not None else ""
+            # 修正 2: 改為 text_input 支援 0 開頭，加上 key 以便清除
+            s_code = st.text_input("🔢 條碼 或 商品代號 搜尋", placeholder="支援 0 開頭條碼", key="input_code")
+            
         with c_clear:
-            st.write("##") # 對齊間距
+            st.write("##") 
+            # 修正 1: 清除按鈕功能實現
             if st.button("🧹清除", use_container_width=True):
+                if "input_name" in st.session_state: st.session_state.input_name = ""
+                if "input_code" in st.session_state: st.session_state.input_code = ""
                 st.rerun()
 
         is_asc = st.session_state.get('is_ascending', True)
@@ -106,7 +113,7 @@ if isinstance(df_main, pd.DataFrame):
             w_df = df_main.copy() if selected_type == "全部" else df_cat[df_cat['類型'] == selected_type].copy()
             if selected_koz != "全部": w_df = w_df[w_df['口座'] == selected_koz]
             if s_name: w_df = w_df[w_df['品名'].str.contains(s_name, na=False, case=False)]
-            # 同時比對 條碼 與 商品代號 欄位
+            # 比對條碼字串，解決 0 開頭問題
             if s_code: 
                 w_df = w_df[w_df['條碼'].str.contains(s_code, na=False) | w_df['商品代號'].str.contains(s_code, na=False)]
             
@@ -120,7 +127,7 @@ if isinstance(df_main, pd.DataFrame):
                         st.markdown(f"**{r['品名']}**")
                         st.caption(f"口座: {r.get('口座','-')} | 代號: {r.get('商品代號','-')}")
 
-    # --- Tab 2: 新增 (加入防重複邏輯) ---
+    # --- Tab 2: 新增 ---
     with tab_add:
         st.markdown("#### ➕ 新增商品")
         u_types = sorted([str(t) for t in df_cat['類型'].unique() if t and t != 'nan'])
@@ -129,7 +136,6 @@ if isinstance(df_main, pd.DataFrame):
         new_name = st.text_input("📦 商品品名")
         new_bc = st.number_input("🔢 商品條碼", step=1, value=None, key="abc")
         
-        # 按鈕：如果正在提交則禁用
         submit_item_btn = st.button(
             "🚀 執行送出" if not st.session_state.submitting_item else "⏳ 處理中...", 
             use_container_width=True, 
@@ -138,12 +144,11 @@ if isinstance(df_main, pd.DataFrame):
 
         if submit_item_btn:
             if final_type and new_name and new_bc:
-                st.session_state.submitting_item = True  # 開啟鎖定
-                st.rerun()  # 立即重新整理介面以禁用按鈕
+                st.session_state.submitting_item = True
+                st.rerun()
             else:
                 st.warning("⚠️ 請填寫完整資訊")
 
-        # 實際處理邏輯 (在頁面重整後偵測鎖定狀態執行)
         if st.session_state.submitting_item:
             try:
                 payload = {"method": "add_barcode", "type": final_type, "name": new_name, "barcode": str(new_bc)}
@@ -154,8 +159,8 @@ if isinstance(df_main, pd.DataFrame):
                 else: st.error(f"錯誤: {res.text}")
             except Exception as e: st.error(f"連線失敗: {str(e)}")
             finally:
-                st.session_state.submitting_item = False  # 解鎖
-                st.stop() # 停止當前執行
+                st.session_state.submitting_item = False
+                st.stop()
 
     # --- Tab 3: 設定 ---
     with tab_settings:
@@ -167,14 +172,13 @@ if isinstance(df_main, pd.DataFrame):
         st.divider()
         with st.expander("📝 版本更新資訊"): st.markdown(VERSION_HISTORY)
 
-    # --- Tab 4: 反映 (加入防重複邏輯) ---
+    # --- Tab 4: 反映 ---
     with tab_feedback:
         st.markdown("#### 💬 意見反映")
         f_type = st.selectbox("類型", ["功能建議", "錯誤回報", "資料修正", "其他"])
         f_user = st.text_input("您的稱呼", placeholder="匿名")
         f_cont = st.text_area("反映內容 (必填)")
         
-        # 按鈕：如果正在提交則禁用
         submit_fb_btn = st.button(
             "🚀 提交回饋" if not st.session_state.submitting_fb else "⏳ 傳送中...", 
             use_container_width=True, 
@@ -188,7 +192,6 @@ if isinstance(df_main, pd.DataFrame):
             else:
                 st.warning("⚠️ 內容不可空白")
 
-        # 實際處理邏輯
         if st.session_state.submitting_fb:
             try:
                 p = {"method": "feedback", "type": f_type, "user": f_user if f_user else "匿名", "content": f_cont}
