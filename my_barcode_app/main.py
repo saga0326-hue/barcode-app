@@ -7,43 +7,9 @@ import streamlit.components.v1 as components
 # 1. 頁面基礎設定
 st.set_page_config(page_title="專業商品條碼系統", layout="wide", page_icon="📦", initial_sidebar_state="collapsed")
 
-# --- CSS 注入：將按鈕移入輸入框並美化為圓形叉叉 ---
-st.markdown("""
-<style>
-    /* 定位容器 */
-    [data-testid="stHorizontalBlock"] {
-        align-items: center;
-    }
-    /* 隱藏按鈕原本的邊框與背景 */
-    .stButton > button {
-        border: none !important;
-        background-color: transparent !important;
-        color: #B0B0B0 !important; /* 灰色 */
-        padding: 0px !important;
-        width: 30px !important;
-        height: 30px !important;
-        margin-left: -45px !important; /* 關鍵：向左移動覆蓋到輸入框內 */
-        z-index: 99;
-        font-size: 18px !important;
-        border-radius: 50% !important;
-    }
-    /* 按鈕懸停效果 */
-    .stButton > button:hover {
-        color: #808080 !important;
-        background-color: #F0F2F6 !important;
-    }
-    /* 修正輸入框右側間距，避免文字被叉叉遮住 */
-    .stTextInput input {
-        padding-right: 40px !important;
-        border-radius: 20px !important; /* 圓角造型 */
-    }
-</style>
-""", unsafe_allow_html=True)
-
 # --- 更新日誌 ---
 VERSION_HISTORY = """
 **(2026/04/27)**
-- 🎨 **美化**：透過 CSS 注入，將清除按鈕移入輸入框內，達成 iOS/Android 原生搜尋框視覺效果。
 - 🗑️ **移除**：應需求移除「清除」按鈕，簡化介面。
 - 🛡️ **邏輯**：新增強制篩選機制，類別或口座必須擇一篩選方可顯示結果。
 - 🔍 **優化**：搜尋欄位開啟原生 `clear_on_submit` 功能，點擊 Enter 後可快速作業。
@@ -68,10 +34,6 @@ if 'submitting_item' not in st.session_state:
     st.session_state.submitting_item = False
 if 'submitting_fb' not in st.session_state:
     st.session_state.submitting_fb = False
-if 'input_name' not in st.session_state:
-    st.session_state.input_name = ""
-if 'input_code' not in st.session_state:
-    st.session_state.input_code = ""
 
 # 2. 核心腳本 (強制手機數字鍵盤)
 def force_numeric_pad():
@@ -132,26 +94,14 @@ if isinstance(df_main, pd.DataFrame):
         
         st.divider()
         
-        # --- 品名輸入框與鑲嵌叉叉 ---
-        c_name_in, c_name_clr = st.columns([10, 1])
-        with c_name_in:
-            s_name = st.text_input("📝 品名關鍵字", placeholder="輸入關鍵字...", key="input_name", label_visibility="collapsed")
-        with c_name_clr:
-            if st.button("✖", key="clr_name"):
-                st.session_state.input_name = ""
-                st.rerun()
+        # 搜尋輸入框
+        s_name = st.text_input("📝 品名關鍵字", placeholder="輸入關鍵字...", key="input_name")
+        s_code = st.text_input("🔢 條碼 或 商品代號 搜尋", placeholder="支援 0 開頭條碼", key="input_code")
 
-        # --- 條碼輸入框與鑲嵌叉叉 ---
-        c_code_in, c_code_clr = st.columns([10, 1])
-        with c_code_in:
-            s_code = st.text_input("🔢 條碼搜尋", placeholder="支援 0 開頭條碼", key="input_code", label_visibility="collapsed")
-        with c_code_clr:
-            if st.button("✖", key="clr_code"):
-                st.session_state.input_code = ""
-                st.rerun()
-
-        # 搜尋邏輯
+        # 搜尋邏輯處理
         is_asc = st.session_state.get('is_ascending', True)
+        
+        # 強制限制：類別或口座必須選一個，除非有輸入關鍵字或條碼
         has_filter = selected_type != "全部" or selected_koz != "全部"
         has_input = s_name.strip() != "" or s_code.strip() != ""
 
@@ -175,9 +125,9 @@ if isinstance(df_main, pd.DataFrame):
                             st.markdown(f"**{r['品名']}**")
                             st.caption(f"口座: {r.get('口座','-')} | 代號: {r.get('商品代號','-')}")
         else:
-            st.warning("💡 請選擇「類別」或「口座」開始搜尋")
+            st.warning("💡 請至少選擇一個「類別」或「口座」進行篩選")
 
-    # --- 其餘頁面 (Tab 2, 3, 4) 保持不變 ---
+    # --- Tab 2: 新增 ---
     with tab_add:
         st.markdown("#### ➕ 新增商品")
         u_types = sorted([str(t) for t in df_cat['類型'].unique() if t and t != 'nan'])
@@ -186,21 +136,33 @@ if isinstance(df_main, pd.DataFrame):
         new_name = st.text_input("📦 商品品名")
         new_bc = st.number_input("🔢 商品條碼", step=1, value=None, key="abc")
         
-        submit_item_btn = st.button("🚀 執行送出", use_container_width=True, disabled=st.session_state.submitting_item)
-        if submit_item_btn and final_type and new_name and new_bc:
-            st.session_state.submitting_item = True
-            st.rerun()
+        submit_item_btn = st.button(
+            "🚀 執行送出" if not st.session_state.submitting_item else "⏳ 處理中...", 
+            use_container_width=True, 
+            disabled=st.session_state.submitting_item
+        )
+
+        if submit_item_btn:
+            if final_type and new_name and new_bc:
+                st.session_state.submitting_item = True
+                st.rerun()
+            else:
+                st.warning("⚠️ 請填寫完整資訊")
 
         if st.session_state.submitting_item:
             try:
                 payload = {"method": "add_barcode", "type": final_type, "name": new_name, "barcode": str(new_bc)}
                 res = requests.post(SCRIPT_URL, data=json.dumps(payload), timeout=15)
-                st.success(f"✅ 已成功寫入：{new_name}")
-                st.cache_data.clear()
+                if "Success" in res.text:
+                    st.success(f"✅ 已成功寫入：{new_name}")
+                    st.cache_data.clear()
+                else: st.error(f"錯誤: {res.text}")
+            except Exception as e: st.error(f"連線失敗: {str(e)}")
             finally:
                 st.session_state.submitting_item = False
                 st.stop()
 
+    # --- Tab 3: 設定 ---
     with tab_settings:
         sort_choice = st.radio("品名排序方向", ["遞增 (A-Z)", "遞減 (Z-A)"], index=0)
         st.session_state['is_ascending'] = (sort_choice == "遞增 (A-Z)")
@@ -210,17 +172,37 @@ if isinstance(df_main, pd.DataFrame):
         st.divider()
         with st.expander("📝 版本更新資訊"): st.markdown(VERSION_HISTORY)
 
+    # --- Tab 4: 反映 ---
     with tab_feedback:
         st.markdown("#### 💬 意見反映")
         f_type = st.selectbox("類型", ["功能建議", "錯誤回報", "資料修正", "其他"])
         f_user = st.text_input("您的稱呼", placeholder="匿名")
         f_cont = st.text_area("反映內容 (必填)")
-        if st.button("🚀 提交回饋", use_container_width=True) and f_cont.strip():
+        
+        submit_fb_btn = st.button(
+            "🚀 提交回饋" if not st.session_state.submitting_fb else "⏳ 傳送中...", 
+            use_container_width=True, 
+            disabled=st.session_state.submitting_fb
+        )
+
+        if submit_fb_btn:
+            if f_cont.strip():
+                st.session_state.submitting_fb = True
+                st.rerun()
+            else:
+                st.warning("⚠️ 內容不可空白")
+
+        if st.session_state.submitting_fb:
             try:
                 p = {"method": "feedback", "type": f_type, "user": f_user if f_user else "匿名", "content": f_cont}
-                requests.post(SCRIPT_URL, data=json.dumps(p), timeout=15)
-                st.success("✅ 感謝反映！")
-                st.balloons()
-            except: st.error("傳送失敗")
+                res = requests.post(SCRIPT_URL, data=json.dumps(p), timeout=15)
+                if "Success" in res.text: 
+                    st.success("✅ 感謝反映！")
+                    st.balloons()
+                else: st.error("傳送失敗")
+            except Exception as e: st.error(f"錯誤: {str(e)}")
+            finally:
+                st.session_state.submitting_fb = False
+                st.stop()
 else:
     st.error("⚠️ 資料源連線失敗")
