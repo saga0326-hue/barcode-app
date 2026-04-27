@@ -79,16 +79,24 @@ if isinstance(df_main, pd.DataFrame):
         selected_koz = st.segmented_control("ksel", options=["全部", "04", "05", "07"], default="全部", label_visibility="collapsed")
         
         st.divider()
-        s_name = st.text_input("📝 品名關鍵字", placeholder="關鍵字...")
-        s_code_n = st.number_input("🔢 條碼搜尋", step=1, value=None, key="sc")
-        s_code = str(s_code_n) if s_code_n is not None else ""
+        s_name = st.text_input("📝 品名關鍵字", placeholder="輸入關鍵字...")
+        
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            s_code_n = st.number_input("🔢 條碼搜尋", step=1, value=None, key="sc")
+            s_code = str(s_code_n) if s_code_n is not None else ""
+        with col_s2:
+            s_id = st.text_input("🆔 商品代號搜尋", placeholder="代號...", key="si")
 
         is_asc = st.session_state.get('is_ascending', True)
-        if any([s_name, s_code, selected_type != "全部", selected_koz != "全部"]):
+        # 增加 s_id 到判斷式中
+        if any([s_name, s_code, s_id, selected_type != "全部", selected_koz != "全部"]):
             w_df = df_main.copy() if selected_type == "全部" else df_cat[df_cat['類型'] == selected_type].copy()
             if selected_koz != "全部": w_df = w_df[w_df['口座'] == selected_koz]
             if s_name: w_df = w_df[w_df['品名'].str.contains(s_name, na=False, case=False)]
             if s_code: w_df = w_df[w_df['條碼'].str.contains(s_code, na=False)]
+            if s_id: w_df = w_df[w_df['商品代號'].str.contains(s_id, na=False, case=False)] # 新增商品代號篩選
+            
             w_df = w_df.sort_values(by='品名', ascending=is_asc).head(50)
 
             for _, r in w_df.iterrows():
