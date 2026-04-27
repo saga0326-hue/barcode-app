@@ -9,8 +9,8 @@ st.set_page_config(page_title="專業商品條碼系統", layout="wide", page_ic
 
 # --- 更新日誌 ---
 VERSION_HISTORY = """
-**(2026/04/27)**
-- ✨ **新增**：在品名與條碼輸入框旁新增「✖️」清除小按鈕，方便手機快速清空。
+**(2024/04/27)**
+- 🗑️ **移除**：應需求移除「清除」按鈕，簡化介面。
 - 🛡️ **邏輯**：新增強制篩選機制，類別或口座必須擇一篩選方可顯示結果。
 - 🔍 **優化**：搜尋欄位開啟原生 `clear_on_submit` 功能，點擊 Enter 後可快速作業。
 - 🔍 **修正**：支援「0」開頭條碼搜尋。
@@ -34,11 +34,6 @@ if 'submitting_item' not in st.session_state:
     st.session_state.submitting_item = False
 if 'submitting_fb' not in st.session_state:
     st.session_state.submitting_fb = False
-# 初始化輸入框內容
-if 'input_name' not in st.session_state:
-    st.session_state.input_name = ""
-if 'input_code' not in st.session_state:
-    st.session_state.input_code = ""
 
 # 2. 核心腳本 (強制手機數字鍵盤)
 def force_numeric_pad():
@@ -99,29 +94,14 @@ if isinstance(df_main, pd.DataFrame):
         
         st.divider()
         
-        # --- 品名輸入與清除 ---
-        c_name_in, c_name_clr = st.columns([6, 1])
-        with c_name_in:
-            s_name = st.text_input("📝 品名關鍵字", placeholder="輸入關鍵字...", key="input_name")
-        with c_name_clr:
-            st.write("##") # 對齊
-            if st.button("✖️", key="clr_name", help="清除品名"):
-                st.session_state.input_name = ""
-                st.rerun()
-
-        # --- 條碼輸入與清除 ---
-        c_code_in, c_code_clr = st.columns([6, 1])
-        with c_code_in:
-            s_code = st.text_input("🔢 條碼 或 代號 搜尋", placeholder="支援 0 開頭條碼", key="input_code")
-        with c_code_clr:
-            st.write("##") # 對齊
-            if st.button("✖️", key="clr_code", help="清除條碼"):
-                st.session_state.input_code = ""
-                st.rerun()
+        # 搜尋輸入框
+        s_name = st.text_input("📝 品名關鍵字", placeholder="輸入關鍵字...", key="input_name")
+        s_code = st.text_input("🔢 條碼 或 商品代號 搜尋", placeholder="支援 0 開頭條碼", key="input_code")
 
         # 搜尋邏輯處理
         is_asc = st.session_state.get('is_ascending', True)
         
+        # 強制限制：類別或口座必須選一個，除非有輸入關鍵字或條碼
         has_filter = selected_type != "全部" or selected_koz != "全部"
         has_input = s_name.strip() != "" or s_code.strip() != ""
 
